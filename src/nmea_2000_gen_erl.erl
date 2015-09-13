@@ -1,22 +1,25 @@
 %%% @author Tony Rogvall <tony@rogvall.se>
 %%% @copyright (C) 2015, Tony Rogvall
 %%% @doc
-%%%    Load Erlang term format and convert to erlang code
+%%%    Load Erlang term format and convert to erlang code,
+%%%    This code does not work yet LSB not supported yet
 %%% @end
 %%% Created :  8 Sep 2015 by Tony Rogvall <tony@rogvall.se>
 
 -module(nmea_2000_gen_erl).
 
--export([save/1, save/0]).
+-export([save/0]).
+-export([convert/2]).
+
 
 save() ->
-    save("nmea_2000_pgn.erl").
+    convert("pgns.term", "nmea_2000_pgn.erl").
 
-save(OutFile) ->
-    case file:open(OutFile, [write]) of
-	{ok,Fd} ->
-	    try load() of
-		{ok,Def} ->
+convert(FromFile, OutFile) ->
+    case nmea_2000_lib:load(FromFile) of
+	{ok,Def} ->
+	    case file:open(OutFile, [write]) of
+		{ok,Fd} ->
 		    write_header(Fd),
 		    try write_functions(Fd, Def) of
 			ok -> ok
@@ -25,27 +28,19 @@ save(OutFile) ->
 			    io:format("crash: ~p\n", 
 				      [erlang:get_stacktrace()]),
 			    {error,Reason}
+		    after
+			file:close(Fd)
 		    end
-	    catch 
-		error:Reason ->
-		    {error,Reason}
-	    after
-		file:close(Fd)
 	    end;
 	Error ->
 	    Error
     end.
-		
-load() ->
-    load("pgns.term").
 
-load(File) ->
-    file:consult(filename:join(code:priv_dir(nmea_2000), File)).
 
 write_header(Fd) ->
     io:format(Fd, "~s\n", ["%% -*- erlang -*-"]),
     io:format(Fd, "~s\n", ["-module(nmea_2000_pgn)."]),
-    io:format(Fd, "~s\n", ["-export([is_small/1])."]),
+    io:format(Fd, "~s\n", ["-export([is_fast/1])."]),
     io:format(Fd, "~s\n", ["-export([decode/2])."]),
     io:format(Fd, "\n\n", []).
 
@@ -54,7 +49,7 @@ write_functions(Fd, Ps) ->
     Ls1 = lists:usort(Ls),
     Ls2 = group_length(Ls1),
     Ls3 = [{P, lists:max(Ln)} || {P,Ln} <- Ls2],
-    write_is_small(Fd, Ls3, Ps),
+    write_is_fast(Fd, Ls3, Ps),
     io:format(Fd, "\n\n", []),
     write_decode(Fd, Ps).
 
@@ -68,18 +63,18 @@ group_length([{Q,L}|Ps], P, Ls, Acc) ->
 group_length([], P, Ls, Acc) ->
     [{P,Ls}|Acc].
 
-%% generate the is_small function
-write_is_small(Fd, [PGNL], Ps) ->
-    emit_is_small_(Fd, PGNL, ".", Ps);
-write_is_small(Fd, [PGNL|T], Ps) ->
-    emit_is_small_(Fd, PGNL, ";", Ps),
-    write_is_small(Fd, T, Ps).
+%% generate the is_fast function
+write_is_fast(Fd, [PGNL], Ps) ->
+    emit_is_fast_(Fd, PGNL, ".", Ps);
+write_is_fast(Fd, [PGNL|T], Ps) ->
+    emit_is_fast_(Fd, PGNL, ";", Ps),
+    write_is_fast(Fd, T, Ps).
 
-emit_is_small_(Fd, {PGN,Length}, Term, Ps) ->
+emit_is_fast_(Fd, {PGN,Length}, Term, Ps) ->
     {PGN,Fs} = lists:keyfind(PGN, 1, Ps),
     Repeating = proplists:get_value(repeating_fields, Fs, 0),
-    io:format(Fd, "is_small(~p) -> ~w~s\n", 
-	      [PGN,(Length =< 8) andalso (Repeating =:= 0),Term]).
+    io:format(Fd, "is_fast(~p) -> ~w~s\n", 
+	      [PGN,(Length > 8) orelse (Repeating =/= 0),Term]).
 
 %% generate the decode function
 %% FIXME! repeating field need extra function to parse tail!

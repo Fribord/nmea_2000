@@ -17,8 +17,8 @@ collect_packet(#can_frame { id=ID, len=Len, data=Data}, Fun, Dict) ->
     H = nmea_2000_lib:decode_canid(ID band ?CAN_EFF_MASK),
     collect_packet({H,Len,Data}, Fun, Dict);
 collect_packet({{Prio,PGN,Src,Dst},Len,Data}, Fun, Dict) ->
-    case nmea_2000_pgn:is_small(PGN) of
-	true ->
+    case nmea_2000_pgn:is_fast(PGN) of
+	false ->
 	    P = #nmea_packet { pgn = PGN,
 			       order = 0,
 			       index = 0,
@@ -30,7 +30,7 @@ collect_packet({{Prio,PGN,Src,Dst},Len,Data}, Fun, Dict) ->
 			       data = [Data] },
 	    fun_packet(Fun, P),
 	    dict:store({Src,PGN}, P, Dict);
-	false ->
+	true ->
 	    case Data of
 		<<Order:3,0:5,PLen,PayLoad/binary>> ->
 		    P = #nmea_packet { pgn = PGN,
