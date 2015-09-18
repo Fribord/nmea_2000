@@ -4,7 +4,8 @@
 -record(nmea_packet,
 	{
 	  pgn :: 0..131071,  %% 17 bit packet pgn
-	  order :: 0..255,   %% packet order number
+	  intf = 0 :: integer(), %% input/output interface number
+	  order :: 0..7,     %% packet order number
 	  index :: 0..31,    %% last stored index
 	  prio  :: 0..7,     %% current prio
 	  src   :: 0..255,   %% source address

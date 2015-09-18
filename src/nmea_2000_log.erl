@@ -94,7 +94,7 @@ parse_log_3(Line) ->
     end.
 
 %% fixme handle more data formats keep time stamp?
-parse_log_2(<<Y1,Y2,Y3,Y4,$-,Mon1,Mon2,$-,Day1,Day2,$Z,
+parse_log_2(<<Y1,Y2,Y3,Y4,$-,Mon1,Mon2,$-,Day1,Day2,$Z,  %% $T?
 	      H1,H2,$:,M1,M2,$:,S1,S2,$.,T1,T2,T3,$,,Data/binary>>) ->
     Year = list_to_integer([Y1,Y2,Y3,Y4]),
     Mon = list_to_integer([Mon1,Mon2]),
@@ -134,11 +134,11 @@ parse_log_2(_Other) ->
 parse_log_data(Data, _TimeStamp) ->
     case binary:split(Data, <<",">>, [global,trim_all]) of
 	[PriBin,PGNBin,SrcBin,DstBin,LenBin | Ds] ->
-	    Len = erlang:binary_to_integer(LenBin),
 	    Pri = erlang:binary_to_integer(PriBin),
 	    PGN = erlang:binary_to_integer(PGNBin),
 	    Src = erlang:binary_to_integer(SrcBin),
 	    Dst = erlang:binary_to_integer(DstBin),
+	    Len = erlang:binary_to_integer(LenBin),
 	    FrameData = list_to_binary(
 			  [ erlang:binary_to_integer(D,16) || D <- Ds]),
 	    {{Pri,PGN,Src,Dst},Len,FrameData};

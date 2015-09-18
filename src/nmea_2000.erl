@@ -10,7 +10,12 @@
 -include_lib("can/include/can.hrl").
 -include("../include/nmea_2000.hrl").
 
+-export([start/0]).
 -export([file/1]).
+
+start() ->
+    application:start(can),
+    application:start(nmea_2000).
 
 -define(dbg(F,A), ok).
 %% -define(dbg(F,A), io:format((F),(A)).
