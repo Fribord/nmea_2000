@@ -277,18 +277,19 @@ process_frame(Frame, Ctx=#ctx{dict = Dict, engines = Engines}) ->
 
  
 emit({transmissionParametersDynamic, FieldList} = _Param, Engines) ->
+    lager:debug("param ~p.", [_Param]),
     %% Append 'Transmission' to make unique labels
-    Fields = [{append(K, 'Transmission'), V} || {K, V} <- FieldList],
-    emit1({transmissionParametersDynamic, Fields}, Engines);
-emit(Param, Engines) ->
-    emit1(Param, Engines).
-
-emit1({_ParamName, FieldList} = Param, Engines) ->
-    lager:debug("param ~p.", [Param]),
+    TransFieldList = [{append(K, 'Transmission'), V} || {K, V} <- FieldList],
+    EngineNo = proplists:get_value(engineInstance, FieldList),
+    Engine = proplists:get_value(EngineNo, Engines),
+    inform_hex(Engine, TransFieldList);
+emit({_ParamName, FieldList} = _Param, Engines) ->
+    lager:debug("param ~p.", [_Param]),
     EngineNo = proplists:get_value(engineInstance, FieldList),
     Engine = proplists:get_value(EngineNo, Engines),
     inform_hex(Engine, FieldList).
     
+
 inform_hex(_Engine, []) ->
     ok;
 inform_hex(Engine, [{engineInstance,_I} | Fields]) ->
