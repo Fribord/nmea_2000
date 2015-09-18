@@ -163,5 +163,6 @@ test_loop(Fd) ->
 	eof -> ok;
 	CanFrame = #can_frame {} ->
 	    nmea_2000:input(CanFrame),
+	    timer:sleep(100), %% Do not flood
 	    test_loop(Fd)
     end.

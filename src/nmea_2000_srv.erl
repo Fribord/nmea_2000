@@ -276,8 +276,15 @@ process_frame(Frame, Ctx=#ctx{dict = Dict, engines = Engines}) ->
     Ctx#ctx {dict = nmea_2000_packet:collect_packet(Frame, F , Dict)}.
 
  
-emit({_ParamName, FieldList} = _Param, Engines) ->
-    lager:debug("param ~p.", [_Param]),
+emit({transmissionParametersDynamic, FieldList} = _Param, Engines) ->
+    %% Append 'Transmission' to make unique labels
+    Fields = [{append(K, 'Transmission'), V} || {K, V} <- FieldList],
+    emit1({transmissionParametersDynamic, Fields}, Engines);
+emit(Param, Engines) ->
+    emit1(Param, Engines).
+
+emit1({_ParamName, FieldList} = Param, Engines) ->
+    lager:debug("param ~p.", [Param]),
     EngineNo = proplists:get_value(engineInstance, FieldList),
     Engine = proplists:get_value(EngineNo, Engines),
     inform_hex(Engine, FieldList).
@@ -286,8 +293,11 @@ inform_hex(_Engine, []) ->
     ok;
 inform_hex(Engine, [{engineInstance,_I} | Fields]) ->
     inform_hex(Engine, Fields);
+inform_hex(Engine, [{engineInstanceTransmission,_I} | Fields]) ->
+    inform_hex(Engine, Fields);
 inform_hex(Engine, [{K,V} | Fields]) ->
     hex:inform('analog', [{label, K}, {equipment_id, Engine}, {value, V}]),
-    timer:sleep(100), %% Do not flood
     inform_hex(Engine, Fields).
     
+append(Atom, Suffix) ->
+    list_to_atom(atom_to_list(Atom) ++ atom_to_list(Suffix)).
