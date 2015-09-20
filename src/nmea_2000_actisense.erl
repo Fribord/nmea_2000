@@ -29,15 +29,13 @@
 -include("../include/nmea_2000.hrl").
 
 %% API
--export([start/0, 
-	 start/1, 
-	 start/2]).
--export([start_link/0, 
-	 start_link/1, 
-	 start_link/2]).
+-export([start/0, start/1, start/2]).
+-export([start_link/0, start_link/1, start_link/2]).
 -export([stop/1]).
 
--compile(export_all).
+%% export for testing
+-export([escape/1, unescape/1]).
+
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -229,20 +227,20 @@ handle_cast({send,Packet}, S) ->
 handle_cast({statistics,From},S) ->
     gen_server:reply(From, {ok,nmea_2000_counter:list()}),
     {noreply, S};
-handle_cast({add_filter,From,PGNs}, S) ->
-    Fs = nmea_2000_filter:add(PGNs,S#s.fs),
+handle_cast({add_filter,From,Accept,Reject}, S) ->
+    Fs = nmea_2000_filter:add(Accept,Reject,S#s.fs),
     gen_server:reply(From, ok),
     {noreply, S#s { fs=Fs }};
-handle_cast({del_filter,From,PGNs}, S) ->
-    Fs = nmea_2000_filter:del(PGNs,S#s.fs),
+handle_cast({del_filter,From,Accept,Reject}, S) ->
+    Fs = nmea_2000_filter:del(Accept,Reject,S#s.fs),
+    gen_server:reply(From, ok),
+    {noreply, S#s { fs=Fs }};
+handle_cast({default_filter,From,Default}, S) ->
+    Fs = nmea_2000_filter:default(Default,S#s.fs),
     gen_server:reply(From, ok),
     {noreply, S#s { fs=Fs }};
 handle_cast({get_filter,From}, S) ->
     Reply = nmea_2000_filter:get(S#s.fs),
-    gen_server:reply(From, Reply),
-    {noreply, S};
-handle_cast({list_filter,From}, S) ->
-    Reply = nmea_2000_filter:list(S#s.fs),
     gen_server:reply(From, Reply),
     {noreply, S};
 handle_cast(_Mesg, S) ->

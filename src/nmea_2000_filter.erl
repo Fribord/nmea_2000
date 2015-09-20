@@ -7,45 +7,61 @@
 
 -module(nmea_2000_filter).
 
--export([new/0, add/2, del/2, get/1, list/1]).
+-export([new/0, new/3, add/3, del/3, get/1, default/2]).
 -export([input/2]).
 
 -include("../include/nmea_2000.hrl").
+-define(SET_T(), term()).
 
 -record(nmea_fs,
 	{
-	  set :: term() %% sets
+	  accept :: ?SET_T(),
+	  reject :: ?SET_T(),
+	  default = accept :: accept | reject
 	}).
 
 %% create filter structure
 new() ->
-    #nmea_fs { set = sets:new() }.
+    #nmea_fs { accept = sets:new(), reject = sets:new() }.
+
+new(Accept,Reject,Default) 
+  when is_list(Accept), is_list(Reject), 
+       ((Default =:= accept) orelse (Default =:= reject)) ->
+    #nmea_fs { accept = sets:from_list(Accept),
+	       reject = sets:from_list(Reject),
+	       default = Default }.
 
 %% add filter to filter structure
-add(PGNs, Fs) when is_list(PGNs), is_record(Fs, nmea_fs) ->
-    Set = sets:from_list(PGNs),
-    Set1 = sets:union(Fs#nmea_fs.set, Set),
-    Fs#nmea_fs { set = Set1 }.
+add(Accept,Reject,Fs) 
+  when is_list(Accept), is_list(Reject), is_record(Fs, nmea_fs) ->
+    Accept1 = sets:union(Fs#nmea_fs.accept, sets:from_list(Accept)),
+    Reject1 = sets:union(Fs#nmea_fs.reject, sets:from_list(Reject)),
+    Fs#nmea_fs { accept = Accept1, reject = Reject1 }.
 
-del(PGNs, Fs) when is_list(PGNs), is_record(Fs, nmea_fs) ->
-    Set = sets:from_list(PGNs),
-    Set1 = sets:subtract(Fs#nmea_fs.set, Set),
-    Fs#nmea_fs { set = Set1 }.
+del(Accept,Reject,Fs)
+  when is_list(Accept), is_list(Reject), is_record(Fs, nmea_fs) ->
+    Accept1 = sets:subtract(Fs#nmea_fs.accept, sets:from_list(Accept)),
+    Reject1 = sets:subtract(Fs#nmea_fs.reject, sets:from_list(Reject)),
+    Fs#nmea_fs { accept = Accept1, reject = Reject1 }.
+
+default(Default, Fs) when Default =:= accept; Default =:= reject ->
+    Fs#nmea_fs { default = Default }.
 
 get(Fs) when is_record(Fs, nmea_fs) ->
-    {ok, sets:to_list(Fs#nmea_fs.set)}.
-
-%% return the ordered filter list [{Num,#can_filter{}}]
-list(Fs) when is_record(Fs, nmea_fs) ->
-    {ok, sets:to_list(Fs#nmea_fs.set)}.
+    {ok, [{accept,sets:to_list(Fs#nmea_fs.accept)},
+	  {reject,sets:to_list(Fs#nmea_fs.reject)},
+	  {default, Fs#nmea_fs.default }]}.
 
 %% filter a frame
 %% return true for no filtering (pass through)
 %% return false for filtering
 %%
 input(P, Fs) when is_record(P, nmea_packet), is_record(Fs, nmea_fs) ->
-    case sets:size(Fs#nmea_fs.set) of
-	0 -> true;  %% default to accept all
-	_ -> sets:is_element(P#nmea_packet.pgn, Fs#nmea_fs.set)
+    case sets:is_element(P#nmea_packet.pgn, Fs#nmea_fs.reject) of
+	true -> false;  %% rejected
+	false ->
+	    case sets:is_element(P#nmea_packet.pgn, Fs#nmea_fs.accept) of
+		true -> true; %% accepted
+		false -> Fs#nmea_fs.default =:= accept
+	    end
     end.
-
