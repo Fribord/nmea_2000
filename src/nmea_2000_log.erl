@@ -1,9 +1,28 @@
+%%% coding: latin-1
+%%%---- BEGIN COPYRIGHT -------------------------------------------------------
+%%%
+%%% Copyright (C) 2015, Rogvall Invest AB, <tony@rogvall.se>
+%%%
+%%% This software is licensed as described in the file COPYRIGHT, which
+%%% you should have received as part of this distribution. The terms
+%%% are also available at http://www.rogvall.se/docs/copyright.txt.
+%%%
+%%% You may opt to use, copy, modify, merge, publish, distribute and/or sell
+%%% copies of the Software, and permit persons to whom the Software is
+%%% furnished to do so, under the terms of the COPYRIGHT file.
+%%%
+%%% This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+%%% KIND, either express or implied.
+%%%
+%%%---- END COPYRIGHT ---------------------------------------------------------
 %%% @author Tony Rogvall <tony@rogvall.se>
 %%% @copyright (C) 2015, Tony Rogvall
 %%% @doc
 %%%    Read NMEA/CAN log files + work as a backend to nmea_2000_router
+%%%
+%%% Created :  7 Sep 2015 by Tony Rogvall 
 %%% @end
-%%% Created :  7 Sep 2015 by Tony Rogvall <tony@rogvall.se>
+%%%-------------------------------------------------------------------
 
 -module(nmea_2000_log).
 
@@ -28,6 +47,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+%% Test API
+-export([pause/1, resume/1, restart/1]).
+
 -record(s, {
 	  receiver={nmea_2000_router, undefined, 0} ::
 	    {Module::atom(), %% Module to join and send to
@@ -39,9 +61,11 @@
 	  retry_interval,  %% Timeout for open retry
 	  retry_timer,     %% Timer reference for retry
 	  read_timer,      %% Timer for reading data entries
+	  rotate = true,   %% Rotate or run once
+	  paused = false,  %% Pause input
 	  pgn_dict,        %% Place where PGNs are stored
 	  last_ts,         %% last time
-	  fs               %% can_filter:new()
+	  fs               %% nmea_2000_filter:new()
 	 }).
 
 -type nmea_2000_log_option() ::
@@ -49,7 +73,11 @@
 	{receiver,  ReceiverPid::pid()} |
 	{file,      FileName::string()} |   %% Log file name
 	{max_rate,  MaxRate::integer()} |   %% Hz
-	{retry_interval, ReopenTimeout::timeout()}.
+	{retry_interval, ReopenTimeout::timeout()} |
+	{rotate, Rotate::boolean()} |
+	{accept, Accept::list(atom())} |
+	{reject, Accept::list(atom())} |
+	{default, accept | reject}.
 
 -define(SERVER, ?MODULE).
 
@@ -90,7 +118,6 @@ start_link(BusId, Opts) when is_integer(BusId), is_list(Opts) ->
     gen_server:start_link(?MODULE, [BusId,Opts], []).
 
 -spec stop(BusId::integer()) -> ok | {error,Reason::term()}.
-
 stop(BusId) ->
     case supervisor:terminate_child(nmea_2000_if_sup, {?MODULE, BusId}) of
 	ok ->
@@ -98,6 +125,16 @@ stop(BusId) ->
 	Error ->
 	    Error
     end.
+
+-spec pause(BusId::integer()) -> ok | {error, Error::atom()}.
+pause(BusId) when is_integer(BusId) ->
+    gen_server:call(server(BusId), pause).
+-spec resume(BusId::integer()) -> ok | {error, Error::atom()}.
+resume(BusId) when is_integer(BusId) ->
+    gen_server:call(server(BusId), resume).
+-spec restart(BusId::integer()) -> ok | {error, Error::atom()}.
+restart(BusId) when is_integer(BusId) ->
+    gen_server:call(server(BusId), restart).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -126,26 +163,33 @@ init([Id,Opts]) ->
     Accept = proplists:get_value(accept, Opts, []),
     Reject = proplists:get_value(reject, Opts, []),
     Default = proplists:get_value(default, Opts, accept),
+    Rotate = proplists:get_value(rotate, Opts, true),
 
     File = proplists:get_value(file, Opts),
+
     if File =:= undefined ->
 	    ?error("nmea_2000_log: missing file argument"),
 	    {stop, einval};
        true ->
+	    LogFile = nmea_2000:text_expand(File,[]),
 	    case join(Router, Pid, {?MODULE,File,Id}) of
 		{ok, If} when is_integer(If) ->
 		    ?debug("nmea_2000_log:joined: intf=~w", [If]),
 		    S = #s{ receiver={Router,Pid,If},
-			    file = File,
+			    file = LogFile,
 			    pgn_dict = dict:new(),
 			    max_rate = MaxRate,
 			    retry_interval = RetryInterval,
+			    rotate = Rotate,
 			    fs=nmea_2000_filter:new(Accept,Reject,Default)
 			  },
-		    ?info("nmea_2000_log: using file ~s\n", [File]),
+		    ?info("nmea_2000_log: using file ~s\n", [LogFile]),
 		    case open_logfile(S) of
-			{ok, S1} -> {ok, S1};
-			Error -> {stop, Error}
+			{ok, S1} -> 
+			    erlang:register(server(Id), self()),
+			    {ok, S1};
+			Error -> 
+			    {stop, Error}
 		    end;
 		{error, Reason} = E ->
 		    lager:error("Failed to join ~p(~p), reason ~p", 
@@ -173,6 +217,12 @@ handle_call({send,_Packet}, _From, S) ->
     {reply, {error, read_only}, S};
 handle_call(statistics,_From,S) ->
     {reply,{ok,nmea_2000_counter:list()}, S};
+handle_call(pause, _From, S) ->
+    {reply, ok, S#s {paused = true}};
+handle_call(resume, _From, S) ->
+    {reply, ok, S#s {paused = false}};
+handle_call(restart, _From, S) ->
+    {reply, ok, reopen_logfile(S)};
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
 handle_call(_Request, _From, S) ->
@@ -210,7 +260,7 @@ handle_cast({get_filter,From}, S) ->
     gen_server:reply(From, Reply),
     {noreply, S};
 handle_cast(_Mesg, S) ->
-    ?debug("nmea_2000_actisense: handle_cast: ~p\n", [_Mesg]),
+    ?debug("nmea_2000_log: handle_cast: ~p\n", [_Mesg]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -232,13 +282,26 @@ handle_info({timeout,TRef,reopen},S) when TRef =:= S#s.retry_timer ->
 	    {stop, Error, S}
     end;
 
+handle_info({timeout,_Ref,read},S) when S#s.paused =:= true ->
+    %% Restart timer
+    Timer = start_timer(100, read),
+    {noreply, S#s { read_timer = Timer }};
+
 handle_info({timeout,Ref,read},S) when Ref =:= S#s.read_timer ->
     if S#s.fd =/= undefined ->
 	    case read_can_frame(S#s.fd) of
 		eof ->
-		    {ok,0} = file:position(S#s.fd, 0),
-		    Timer = start_timer(100, read),
-		    {noreply, S#s { read_timer = Timer, last_ts = undefined }};
+		    case S#s.rotate of
+			true ->
+			    {ok,0} = file:position(S#s.fd, 0),
+			    Timer = start_timer(100, read),
+			    {noreply, S#s { read_timer = Timer, 
+					    last_ts = undefined }};
+			false ->
+			    close(S#s.fd),
+			    {noreply, S#s { fd = undefined,
+					    last_ts = undefined }}
+		    end;
 		error ->
 		    lager:warning("read_can_frame go error (corrupt file?)",[]),
 		    {noreply, reopen_logfile(S)};
@@ -263,7 +326,7 @@ handle_info({timeout,Ref,read},S) when Ref =:= S#s.read_timer ->
     end;
 
 handle_info(_Info, S) ->
-    ?debug("nmea_2000_actisense: got info ~p", [_Info]),
+    ?debug("nmea_2000_log: got info ~p", [_Info]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -307,7 +370,7 @@ open_logfile(S0=#s {file = File }) ->
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
 	Error ->
-	    lager:error("nmea_2000_actisense: error ~w", [Error]),
+	    lager:error("nmea_2000_log: error ~w", [Error]),
 	    Error
     end.
 
@@ -495,3 +558,6 @@ timestamp_to_ms(undefined) -> ?CAN_NO_TIMESTAMP;
 timestamp_to_ms({Date,{H,M,S},Milli}) ->
     Days = calendar:date_to_gregorian_days(Date),
     (((Days*24 + H)*60 + M)*60 + S)*1000 + Milli.
+
+server(BusId) ->
+    list_to_atom(atom_to_list(?SERVER) ++ integer_to_list(BusId)).

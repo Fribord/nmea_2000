@@ -30,7 +30,7 @@
 -export([start/0, start/1, stop/0]).
 -export([start_link/0, start_link/1]).
 -export([join/1, join/2]).
--export([attach/0, detach/0]).
+-export([attach/0, attach/1, attach/2, attach/3, detach/0]).
 -export([send/1, send_from/2]).
 -export([sync_send/1, sync_send_from/2]).
 -export([input/1, input/2, input_from/2]).
@@ -63,7 +63,8 @@
 	{
 	  pid,       %% can app pid
 	  mon,       %% can app monitor
-	  interface  %% interface id
+	  interface, %% interface id,
+	  filter     %% nmea_2000_filter:new()
 	 }).
 
 -record(s,
@@ -194,7 +195,18 @@ call_if(Id, Request) ->
 
 %% attach - simulated can bus or application
 attach() ->
-    gen_server:call(?SERVER, {attach, self()}).
+    gen_server:call(?SERVER, {attach, {[], [], accept}, self()}).
+
+attach(Accept) when is_list(Accept) ->
+    gen_server:call(?SERVER, {attach, {Accept, [], reject}, self()});
+attach(Filter) when is_tuple(Filter) ->
+    gen_server:call(?SERVER, {attach, Filter, self()}).
+
+attach(Accept, Reject) when is_list(Accept), is_list(Reject) ->
+    gen_server:call(?SERVER, {attach, {Accept, Reject, accept}, self()}).
+
+attach(Accept, Reject, Default) when is_list(Accept), is_list(Reject) ->
+    gen_server:call(?SERVER, {attach, {Accept, Reject, Default}, self()}).
 
 %% detach the same
 detach() ->
@@ -291,20 +303,8 @@ handle_call({send,Pid,Packet},_From, S)
   when is_pid(Pid),is_record(Packet, nmea_packet) ->
     S1 = do_send(Pid, Packet, S),
     {reply, ok, S1}; 
-
-handle_call({attach,Pid}, _From, S) when is_pid(Pid) ->
-    Apps = S#s.apps,
-    case lists:keysearch(Pid, #nmea_app.pid, Apps) of
-	false ->
-	    ?debug("nmea_2000_router: process ~p attached.",  [Pid]),
-	    Mon = erlang:monitor(process, Pid),
-	    %% We may extend app interface someday - now = 0
-	    App = #nmea_app { pid=Pid, mon=Mon, interface=0 },
-	    Apps1 = [App | Apps],
-	    {reply, ok, S#s { apps = Apps1 }};
-	{value,_} ->
-	    {reply, ok, S}
-    end;
+handle_call({attach,Filter,Pid}, _From, S) when is_pid(Pid) ->
+    {reply, ok, add_app({Pid, Filter}, S)};
 handle_call({detach,Pid}, _From, S) when is_pid(Pid) ->
     Apps = S#s.apps,
     case lists:keysearch(Pid, #nmea_app.pid, Apps) of
@@ -472,6 +472,20 @@ code_change(_OldVsn, S, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+add_app({Pid, {Accept, Reject, Default}}, S) ->
+    Apps = S#s.apps,
+    case lists:keysearch(Pid, #nmea_app.pid, Apps) of
+	false ->
+	    ?debug("nmea_2000_router: process ~p attached.",  [Pid]),
+	    Mon = erlang:monitor(process, Pid),
+	    Filter = nmea_2000_filter:new(Accept,Reject,Default),
+	    %% We may extend app interface someday - now = 0
+	    App = #nmea_app { pid=Pid, mon=Mon, interface=0, filter = Filter },
+	    Apps1 = [App | Apps],
+	    S#s { apps = Apps1 };
+	{value,_} ->
+	     S
+    end.
 
 count(Counter, S) ->
     can_counter:update(Counter, 1),
@@ -538,7 +552,12 @@ broadcast(Sender,Packet,S) ->
 
 %% send to all applications, except sender application
 broadcast_apps(Sender, Packet, [A|As], S) when A#nmea_app.pid =/= Sender ->
-    A#nmea_app.pid ! Packet,
+    case nmea_2000_filter:input(Packet, A#nmea_app.filter) of
+	true ->
+	    A#nmea_app.pid ! Packet;
+	false ->
+	    do_nothing
+    end,
     broadcast_apps(Sender, Packet, As, S);
 broadcast_apps(Sender, Packet, [_|As], S) ->
     broadcast_apps(Sender, Packet, As, S);
