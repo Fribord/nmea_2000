@@ -210,7 +210,7 @@ handle_cast({get_filter,From}, S) ->
     gen_server:reply(From, Reply),
     {noreply, S};
 handle_cast(_Mesg, S) ->
-    ?debug("nmea_2000_actisense: handle_cast: ~p\n", [_Mesg]),
+    ?debug("nmea_2000_log: handle_cast: ~p\n", [_Mesg]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -263,7 +263,7 @@ handle_info({timeout,Ref,read},S) when Ref =:= S#s.read_timer ->
     end;
 
 handle_info(_Info, S) ->
-    ?debug("nmea_2000_actisense: got info ~p", [_Info]),
+    ?debug("nmea_2000_log: got info ~p", [_Info]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -307,7 +307,7 @@ open_logfile(S0=#s {file = File }) ->
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
 	Error ->
-	    lager:error("nmea_2000_actisense: error ~w", [Error]),
+	    lager:error("nmea_2000_log: error ~w", [Error]),
 	    Error
     end.
 
