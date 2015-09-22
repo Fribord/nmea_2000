@@ -195,18 +195,19 @@ call_if(Id, Request) ->
 
 %% attach - simulated can bus or application
 attach() ->
-    gen_server:call(?SERVER, {attach, {[], [], accept}, self()}).
+    gen_server:call(?SERVER, {attach, self(), {[], [], accept}}).
 
 attach(Accept) when is_list(Accept) ->
-    gen_server:call(?SERVER, {attach, {Accept, [], reject}, self()});
+    gen_server:call(?SERVER, {attach, self(), {Accept, [], reject}});
 attach(Filter) when is_tuple(Filter) ->
-    gen_server:call(?SERVER, {attach, Filter, self()}).
+    gen_server:call(?SERVER, {attach, self(), Filter}).
 
 attach(Accept, Reject) when is_list(Accept), is_list(Reject) ->
-    gen_server:call(?SERVER, {attach, {Accept, Reject, accept}, self()}).
+    gen_server:call(?SERVER, {attach, self(), {Accept, Reject, accept}}).
 
-attach(Accept, Reject, Default) when is_list(Accept), is_list(Reject) ->
-    gen_server:call(?SERVER, {attach, {Accept, Reject, Default}, self()}).
+attach(Accept, Reject, Default) 
+  when is_list(Accept), is_list(Reject), is_atom(Default) ->
+    gen_server:call(?SERVER, {attach, self(), {Accept, Reject, Default}}).
 
 %% detach the same
 detach() ->
@@ -303,7 +304,7 @@ handle_call({send,Pid,Packet},_From, S)
   when is_pid(Pid),is_record(Packet, nmea_packet) ->
     S1 = do_send(Pid, Packet, S),
     {reply, ok, S1}; 
-handle_call({attach,Filter,Pid}, _From, S) when is_pid(Pid) ->
+handle_call({attach,Pid,Filter}, _From, S) when is_pid(Pid) ->
     {reply, ok, add_app({Pid, Filter}, S)};
 handle_call({detach,Pid}, _From, S) when is_pid(Pid) ->
     Apps = S#s.apps,
