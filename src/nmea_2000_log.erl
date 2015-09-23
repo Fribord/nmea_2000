@@ -152,6 +152,7 @@ restart(BusId) when is_integer(BusId) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Id,Opts]) ->
+    lager:debug("options ~p", [Opts]),
     Router = proplists:get_value(router, Opts, nmea_2000_router),
     Pid = proplists:get_value(receiver, Opts, undefined),
     RetryInterval = proplists:get_value(retry_interval,Opts,
@@ -318,6 +319,7 @@ handle_info({timeout,Ref,read},S) when Ref =:= S#s.read_timer ->
 			     end,
 		    Td = max(Ts - LastTs, trunc((1/S#s.max_rate)*1000)),
 		    Timer = start_timer(Td, read),
+		    lager:debug("read timer ~p", [Td]),
 		    {noreply, S#s { pgn_dict = Dict, last_ts = Ts,
 				    read_timer = Timer }}
 	    end;
