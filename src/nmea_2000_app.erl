@@ -19,7 +19,6 @@
 %%% @doc
 %%% NMEA 2000 application.
 %%%
-%%% File: nmea_200_app.erl <br/>
 %%% Created:  9 Sep 2015 by Tony Rogvall
 %%% @end
 %%%-------------------------------------------------------------------
