@@ -42,6 +42,7 @@
 %% Direct log API
 -export([open/1, close/1]).
 -export([read/1, read_can_frame/1]).
+-export([transmit/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -447,6 +448,33 @@ read_can_frame(Fd) ->
 			 data = FrameData, 
 			 ts = Ts }
     end.
+
+transmit(File) ->
+    {ok,Fd} = open(File),
+    transmit_loop(Fd, 1, undefined, 10).
+
+transmit_loop(Fd, I, LastTs, MaxRate) ->
+    case read_can_frame(Fd) of
+	eof ->
+	    file:position(Fd, 0),
+	    transmit_loop(Fd, I, LastTs, MaxRate);
+	CanFrame ->
+	    can:send(CanFrame),
+	    io:format("."),
+	    if I rem 79 =:= 0 -> io:format("\n");
+	       true -> ok
+	    end,
+	    Ts = if CanFrame#can_frame.ts =:= ?CAN_NO_TIMESTAMP -> 0;
+		    true -> CanFrame#can_frame.ts
+		 end,
+	    LastTs1 = if LastTs =:= undefined -> Ts;
+			 true -> LastTs
+		      end,
+	    Td = max(Ts - LastTs1, trunc((1/MaxRate)*1000)),
+	    timer:sleep(Td),
+	    transmit_loop(Fd,I+1,LastTs1,MaxRate)
+    end.
+    
 
 read(Fd) ->
     case file:read_line(Fd) of
