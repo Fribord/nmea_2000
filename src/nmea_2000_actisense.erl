@@ -409,7 +409,10 @@ scan_dle_stx_(Data0 = <<?DLE,?STX,Command,Len,Data/binary>>, S) ->
 	    Sz = I-1,
 	    <<Data1:Sz/binary,Sum,Buf/binary>> = Data,
 	    handle_msg(Command,Len,unescape(Data1),Sum,S#s { buf = Buf })
-    end.
+    end;
+scan_dle_stx_(Data,S) ->
+    S#s { buf = Data }.
+
 
 find_dle_etx(<<?DLE,?ETX,_/binary>>, I) -> I;
 find_dle_etx(<<?DLE,?DLE,Rest/binary>>, I) -> find_dle_etx(Rest, I+2);
