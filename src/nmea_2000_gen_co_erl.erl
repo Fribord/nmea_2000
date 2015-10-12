@@ -10,10 +10,11 @@
 
 -export([save/0]).
 -export([convert/2]).
+-export([ccm/0, ccm/1, ccm/2]).
 
 save() ->
     convert(filename:join(code:priv_dir(nmea_2000),"pgns.term"),
-	    "nmea_2000_pgn.erl").
+	    filename:join(code:priv_dir(nmea_2000),"nmea_2000_pgn.erl")).
 
 convert(FromFile, OutFile) ->
     case nmea_2000_lib:load(FromFile) of
@@ -35,7 +36,26 @@ convert(FromFile, OutFile) ->
 	Error ->
 	    Error
     end.
-		
+
+%% Converts, compiles and moves.
+ccm() ->
+    ccm(filename:join(code:priv_dir(nmea_2000),"pgns.term"),
+	filename:join(code:priv_dir(nmea_2000),"nmea_2000_pgn.erl")).
+
+ccm(TermFile) ->
+    ccm(filename:join(code:priv_dir(nmea_2000),TermFile),
+	filename:join(code:priv_dir(nmea_2000),"nmea_2000_pgn.erl")).
+
+ccm(FromFile, OutFile) ->
+    ok = convert(FromFile, OutFile),
+    file:set_cwd(code:priv_dir(nmea_2000)),
+    {ok, _File} = compile:file(OutFile),
+    BeamFile = filename:join(code:priv_dir(nmea_2000),
+			     filename:basename(OutFile,".erl") ++ ".beam"),
+    [] = os:cmd("mv " ++ BeamFile ++ " " ++ code:lib_dir(nmea_2000,ebin)),
+    ok.
+    
+
 write_header(Fd) ->
     io:format(Fd, "~s\n", ["%% -*- erlang -*-"]),
     io:format(Fd, "~s\n", ["-module(nmea_2000_pgn)."]),
