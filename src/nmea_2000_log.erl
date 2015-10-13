@@ -228,6 +228,7 @@ handle_call(restart, _From, S) ->
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
 handle_call(_Request, _From, S) ->
+    ?debug("got unknown request ~p\n", [_Request]),
     {reply, {error,bad_call}, S}.
 
 %%--------------------------------------------------------------------
@@ -261,8 +262,8 @@ handle_cast({get_filter,From}, S) ->
     Reply = nmea_2000_filter:get(S#s.fs),
     gen_server:reply(From, Reply),
     {noreply, S};
-handle_cast(_Mesg, S) ->
-    ?debug("nmea_2000_log: handle_cast: ~p\n", [_Mesg]),
+handle_cast(_Msg, S) ->
+    ?debug("got unknown msg ~p\n", [_Msg]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -329,7 +330,7 @@ handle_info({timeout,Ref,read},S) when Ref =:= S#s.read_timer ->
     end;
 
 handle_info(_Info, S) ->
-    ?debug("nmea_2000_log: got info ~p", [_Info]),
+    ?debug("got unknown info ~p", [_Info]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
