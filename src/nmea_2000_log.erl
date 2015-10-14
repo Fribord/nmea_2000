@@ -173,7 +173,7 @@ init([Id,Opts]) ->
 	    ?error("nmea_2000_log: missing file argument"),
 	    {stop, einval};
        true ->
-	    LogFile = nmea_2000:text_expand(File,[]),
+	    LogFile = nmea_2000_log:text_expand(File,[]),
 	    case join(Router, Pid, {?MODULE,File,Id}) of
 		{ok, If} when is_integer(If) ->
 		    ?debug("nmea_2000_log:joined: intf=~w", [If]),
