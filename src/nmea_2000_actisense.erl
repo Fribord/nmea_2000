@@ -25,7 +25,6 @@
 
 -behaviour(gen_server).
 
--include_lib("lager/include/log.hrl").
 -include("../include/nmea_2000.hrl").
 
 %% API
@@ -160,12 +159,12 @@ init([Id,Opts]) ->
 	       Baud1 -> Baud1
 	   end,
     if Device =:= false; Device =:= "" ->
-	    ?error("nmea_2000_actisense: missing device argument"),
+	    lager:error("missing device argument"),
 	    {stop, einval};
        true ->
 	    case join(Router, Pid, {?MODULE,Device,Id}) of
 		{ok, If} when is_integer(If) ->
-		    ?debug("nmea_2000_actisense:joined: intf=~w", [If]),
+		    lager:debug("joined: intf=~w", [If]),
 		    S = #s{ receiver={Router,Pid,If},
 			    device = Device,
 			    offset = Id,
@@ -173,8 +172,7 @@ init([Id,Opts]) ->
 			    retry_interval = RetryInterval,
 			    fs=nmea_2000_filter:new()
 			  },
-		    ?info("nmea_2000_actisense: using device ~s@~w\n", 
-			  [Device, Baud]),
+		    lager:info("using device ~s@~w\n", [Device, Baud]),
 		    case open(S) of
 			{ok, S1} -> {ok, S1};
 			Error -> {stop, Error}
@@ -209,6 +207,7 @@ handle_call(statistics,_From,S) ->
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
 handle_call(_Request, _From, S) ->
+    lager:debug("unknown request ~p\n", [_Request]),
     {reply, {error,bad_call}, S}.
 
 %%--------------------------------------------------------------------
@@ -244,7 +243,7 @@ handle_cast({get_filter,From}, S) ->
     gen_server:reply(From, Reply),
     {noreply, S};
 handle_cast(_Mesg, S) ->
-    ?debug("nmea_2000_actisense: handle_cast: ~p\n", [_Mesg]),
+    lager:debug("unknown message ~p\n", [_Mesg]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -286,7 +285,7 @@ handle_info({timeout,TRef,reopen},S) when TRef =:= S#s.retry_timer ->
     end;
 
 handle_info(_Info, S) ->
-    ?debug("nmea_2000_actisense: got info ~p", [_Info]),
+    lager:debug("unknown info ~p", [_Info]),
     {noreply, S}.
 
 %%--------------------------------------------------------------------
@@ -323,25 +322,25 @@ open(S0=#s {device = DeviceName, baud_rate = Baud }) ->
 		{csize, 8}, {stopb,1}, {parity,none}, {active, true}],
     case uart:open(DeviceName, UartOpts) of
 	{ok,Uart} ->
-	    ?debug("nmea_2000_actisense:open: ~s@~w", [DeviceName,Baud]),
+	    lager:debug("~s@~w", [DeviceName,Baud]),
 	    send_message(Uart, ?NGT_MSG_SEND, ?NGT_STARTUP_SEQ),
 	    %% fixme wait 2 secs ????
 	    {ok, S0#s { uart = Uart }};
 	{error,E} when E =:= eaccess; E =:= enoent ->
-	    ?debug("nmea_2000_actisense:open: ~s@~w  error ~w, will try again "
-		   "in ~p msecs.", [DeviceName,Baud,E,S0#s.retry_interval]),
+	    lager:debug("~s@~w  error ~w, will try again in ~p msecs.", 
+			[DeviceName,Baud,E,S0#s.retry_interval]),
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
 	Error ->
-	    lager:error("nmea_2000_actisense: error ~w", [Error]),
+	    lager:error("error ~w", [Error]),
 	    Error
     end.
 
 reopen(S) ->
     if S#s.uart =/= undefined ->
-	    ?debug("closing device ~s", [S#s.device]),
+	    lager:debug("closing device ~s", [S#s.device]),
 	    R = uart:close(S#s.uart),
-	    ?debug("closed ~p", [R]),
+	    lager:debug("closed ~p", [R]),
 	    R;
        true ->
 	    ok
@@ -403,7 +402,7 @@ scan_dle_stx_(Data0 = <<?DLE,?STX,Command,Len,Data/binary>>, S) ->
 	false ->
 	    S#s { buf = Data0 };
 	0 ->
-	    ?warning("scan_dle_stx, no checksum found, dropped", []),
+	    lager:warning("scan_dle_stx, no checksum found, dropped", []),
 	    S#s { buf = <<>> };
 	I ->
 	    Sz = I-1,
@@ -425,11 +424,11 @@ handle_msg(Command,Len,Data,Sum,S) ->
 	    S1 = input_msg(Command,Data,S),
 	    scan_dle_stx(S1);
        Len =/= byte_size(Data) ->
-	    ?warning("bad message bad length ~w expected ~w", 
+	    lager:warning("bad message bad length ~w expected ~w", 
 		     [byte_size(Data), Len]),
 	    scan_dle_stx(S);
        true ->
-	    ?warning("bad message checksum ~w", [Check]),
+	    lager:warning("bad message checksum ~w", [Check]),
 	    scan_dle_stx(S)
     end.
 
@@ -437,7 +436,7 @@ input_msg(?N2K_MSG_RECEIVED, <<Prio,PGN:24/little,Dst,Src,
 			       TimeStamp:4/binary,  %% is order here?
 			       Len, Data/binary>>, S) ->
     if Len > 223 ->
-	    ?warning("n2k message length too long ~w", [Len]),
+	    lager:warning("n2k message length too long ~w", [Len]),
 	    S;
        true ->
 	    Packet = #nmea_packet { pgn = PGN,
@@ -449,7 +448,7 @@ input_msg(?N2K_MSG_RECEIVED, <<Prio,PGN:24/little,Dst,Src,
 				    len   = Len,
 				    totlen = Len,
 				    data = Data },
-	    ?debug("prio:~w,pgn:~w,src:~w,dst:~w,ts=~w,len=~w,data=~p",
+	    lager:debug("prio:~w,pgn:~w,src:~w,dst:~w,ts=~w,len=~w,data=~p",
 		   [Prio,PGN,Src,Dst,TimeStamp,Len,Data]),
 	    input(Packet, S)
     end;

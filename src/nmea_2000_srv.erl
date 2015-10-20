@@ -24,7 +24,6 @@
 -module(nmea_2000_srv).
 -behaviour(gen_server).
 
--include_lib("lager/include/log.hrl").
 -include_lib("can/include/can.hrl").
 -include("../include/nmea_2000.hrl").
 
@@ -76,7 +75,7 @@
 			{error, Error::term()}.
 
 start_link(Opts) ->
-    lager:info("~p: start_link: args = ~p\n", [?MODULE, Opts]),
+    lager:info("args = ~p\n", [Opts]),
     F =	case proplists:get_value(linked,Opts,true) of
 	    true -> start_link;
 	    false -> start
@@ -123,7 +122,7 @@ dump() ->
 		  {stop, Reason::term()}.
 
 init(Args) ->
-    lager:info("~p: init: args = ~p,\n pid = ~p\n", [?MODULE, Args, self()]),
+    lager:info("args = ~p,\n pid = ~p\n", [Args, self()]),
     can_counter:init(nmea_stat_in),   %% number of input packets received
     %%can_counter:init(nmea_stat_out),  %% number of output packets  sent
     can_counter:init(nmea_stat_err),  %% number of error packets received
