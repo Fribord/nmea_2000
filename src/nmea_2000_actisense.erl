@@ -452,8 +452,8 @@ input_msg(?N2K_MSG_RECEIVED, <<Prio,PGN:24/little,Dst,Src,
 		   [Prio,PGN,Src,Dst,TimeStamp,Len,Data]),
 	    input(Packet, S)
     end;
-input_msg(?NGT_MSG_RECEIVED, Data, S) ->
-    %% io:format("ngt-message: ~p\n", [Data]),
+input_msg(?NGT_MSG_RECEIVED, _Data, S) ->
+    %% io:format("ngt-message: ~p\n", [_Data]),
     S.
 
 input(Packet, S=#s {receiver = Receiver, fs = Fs}) ->
