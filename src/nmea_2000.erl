@@ -36,6 +36,7 @@
 
 %% Test api
 -export([test/1]).
+-export([emit_log/1]).
 
 -define(SERVER, nmea_2000_srv).
 
@@ -172,3 +173,31 @@ test_loop(Fd) ->
 	    test_loop(Fd)
     end.
 
+%%
+%% Emit CAN frame from log file on CAN bus
+%%
+emit_log(File) ->
+    case nmea_2000_log:open(File) of
+	{ok, Fd} ->
+	    try emit_can_loop(Fd) of
+		ok -> ok
+	    catch
+		error:Reason ->
+		    io:format("crash: ~p\n", 
+			      [erlang:get_stacktrace()]),
+		    {error, Reason}
+	    after
+		nmea_2000_log:close(Fd)
+	    end;
+	Error ->
+	    Error
+    end.
+		
+emit_can_loop(Fd) ->
+    case nmea_2000_log:read_can_frame(Fd) of
+	eof -> ok;
+	CanFrame ->
+	    can:send(CanFrame),
+	    timer:sleep(100), %% Do not flood
+	    emit_can_loop(Fd)
+    end.
