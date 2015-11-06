@@ -53,11 +53,12 @@
 %% For dialyzer
 -type start_options()::{linked, Linked::boolean()}.
 
+-define(DICT_T(), term()).  %% dict:dict()  ( R15!!! )
 %% Loop data
 -record(ctx,
 	{
 	  state = init ::atom(),
-	  dict ::dict:dict(),
+	  dict :: ?DICT_T(),
 	  engines = [] ::list({integer(),atom()})
 	}).
 
