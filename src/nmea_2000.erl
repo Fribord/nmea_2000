@@ -37,15 +37,14 @@
 %% Test api
 -export([test/1]).
 -export([emit_log/1]).
+-export([pause/0, resume/0]).
+-export([pause/1, resume/1]).
 
 -define(SERVER, nmea_2000_srv).
 
 start() ->
     application:start(can),
     application:start(nmea_2000).
-
--define(dbg(F,A), ok).
-%% -define(dbg(F,A), io:format((F),(A)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -71,9 +70,37 @@ input(Frame) when is_record(Frame, can_frame) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Pause an interface.
+%% @end
+%%--------------------------------------------------------------------
+-spec pause(If::integer()) -> ok | {error, Reason::term()}.
+pause(If) when is_integer(If) ->
+    nmea_2000_router:pause(If).
+
+-spec pause() -> {error, Reason::term()}.
+pause() ->
+    {error, interface_required}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Resume an interface.
+%% @end
+%%--------------------------------------------------------------------
+-spec resume(If::integer()) -> ok | {error, Reason::term()}.
+resume(If) when is_integer(If) ->
+    nmea_2000_router:resume(If).
+    
+-spec resume() -> {error, Reason::term()}.
+resume() ->
+    {error, interface_required}.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% Process nmea data from a file.
 %% @end
 %%--------------------------------------------------------------------
+-define(dbg(F,A), ok).
+%% -define(dbg(F,A), io:format((F),(A)).
 -spec file(Frame::string()) -> ok | 
 			       {error, Error::term()}.
 
@@ -110,7 +137,6 @@ emit(Fd, Fmt, Args) ->
     io:format(Fmt, Args),
     io:format(Fd, Fmt, Args).
 
-    
 file(File, Fun) ->
     case nmea_2000_log:open(File) of
 	{ok, Fd} ->

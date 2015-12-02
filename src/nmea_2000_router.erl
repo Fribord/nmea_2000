@@ -194,6 +194,7 @@ print_stat(If, Stat) ->
       end, lists:sort(Stat)).
 
 call_if(Id, Request) ->	
+    lager:debug("call ~p, request ~p",[Id, Request]),
     case gen_server:call(?SERVER, {interface,Id}) of
 	{ok,If} ->
 	    gen_server:call(If#nmea_if.pid, Request);

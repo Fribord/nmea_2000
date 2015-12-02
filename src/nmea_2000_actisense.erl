@@ -223,9 +223,13 @@ init([Id,Opts]) ->
 %% @end
 %%--------------------------------------------------------------------
 
-handle_call({send,Packet}, _From, S) ->
+handle_call({send,Packet}, _From, S=#s {uart = Uart})  
+  when Uart =/= undefined ->
     {Reply,S1} = send_n2k_message(Packet,S),
     {reply, Reply, S1};
+handle_call({send,Packet}, _From, S) ->
+    lager:warning("Packet ~p dropped", [Packet]),
+    {reply, ok, S};
 handle_call(statistics,_From,S) ->
     {reply,{ok,nmea_2000_counter:list()}, S};
 handle_call(pause, _From, S=#s {pause = false, uart = Uart}) 
@@ -242,7 +246,7 @@ handle_call(resume, _From, S=#s {pause = true}) ->
     lager:debug("resume.", []),
     case open(S#s {pause = false}) of
 	{ok, S1} -> {reply, ok, S1};
-	Error -> {stop, Error}
+	Error -> {reply, Error, S}
     end;
 handle_call(resume, _From, S=#s {pause = false}) ->
     lager:debug("resume when not paused.", []),
@@ -385,7 +389,7 @@ open(S0=#s {device = DeviceName, baud_rate = Baud }) ->
     end.
 
 reopen(S=#s {pause = true}) ->
-    {ok, S};
+    S;
 reopen(S) ->
     if S#s.uart =/= undefined ->
 	    lager:debug("closing device ~s", [S#s.device]),
@@ -544,4 +548,4 @@ sum(<<>>, Sum) -> Sum.
 server(Pid) when is_pid(Pid)->
     Pid;
 server(BusId) when is_integer(BusId) ->
-    nmea_2000_router:interface_pid(BusId).
+    can_router:interface_pid(BusId).
