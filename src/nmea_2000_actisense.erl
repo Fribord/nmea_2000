@@ -32,13 +32,22 @@
 -export([start_link/0, start_link/1, start_link/2]).
 -export([stop/1]).
 
+%% gen_server callbacks
+-export([init/1, 
+	 handle_call/3, 
+	 handle_cast/2,
+	 handle_info/2,
+	 terminate/2, 
+	 code_change/3]).
+
+%% Test API
+-export([pause/1, resume/1]).
+-export([dump/1]).
+
 %% export for testing
 -export([escape/1, unescape/1]).
 
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
 
 -record(s, {
 	  receiver={nmea_2000_router, undefined, 0} ::
@@ -51,6 +60,7 @@
 	  offset,          %% Usb port offset
 	  retry_interval,  %% Timeout for open retry
 	  retry_timer,     %% Timer reference for retry
+	  pause = false,   %% Pause input
 	  buf = <<>>,      %% parse buffer
 	  fs               %% can_filter:new()
 	 }).
@@ -58,7 +68,8 @@
 -type nmea_2000_actisense_option() ::
 	{device,  DeviceName::string()} |
 	{baud,    DeviceBaud::integer()} |
-	{retry_interval, ReopenTimeout::timeout()}.
+	{retry_interval, ReopenTimeout::timeout()} |
+	{pause, Pause::boolean()}.
 
 -define(SERVER, ?MODULE).
 
@@ -122,6 +133,17 @@ stop(BusId) ->
 	    Error
     end.
 
+-spec pause(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+pause(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id), pause).
+-spec resume(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+resume(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id), resume).
+
+-spec dump(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+dump(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id),dump).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -142,6 +164,7 @@ init([Id,Opts]) ->
     Pid = proplists:get_value(receiver, Opts, undefined),
     RetryInterval = proplists:get_value(retry_interval,Opts,
 					?DEFAULT_RETRY_INTERVAL),
+    Pause = proplists:get_value(pause, Opts, false),
     Device = case proplists:get_value(device, Opts) of
 		 undefined ->
 		     %% try environment
@@ -170,6 +193,7 @@ init([Id,Opts]) ->
 			    offset = Id,
 			    baud_rate = Baud,
 			    retry_interval = RetryInterval,
+			    pause = Pause,
 			    fs=nmea_2000_filter:new()
 			  },
 		    lager:info("using device ~s@~w\n", [Device, Baud]),
@@ -204,6 +228,28 @@ handle_call({send,Packet}, _From, S) ->
     {reply, Reply, S1};
 handle_call(statistics,_From,S) ->
     {reply,{ok,nmea_2000_counter:list()}, S};
+handle_call(pause, _From, S=#s {pause = false, uart = Uart}) 
+  when Uart =/= undefined ->
+    lager:debug("pause.", []),
+    lager:debug("closing device ~s", [S#s.device]),
+    R = uart:close(S#s.uart),
+    lager:debug("closed ~p", [R]),
+    {reply, ok, S#s {pause = true}};
+handle_call(pause, _From, S) ->
+    lager:debug("pause when not active.", []),
+    {reply, ok, S#s {pause = true}};
+handle_call(resume, _From, S=#s {pause = true}) ->
+    lager:debug("resume.", []),
+    case open(S#s {pause = false}) of
+	{ok, S1} -> {reply, ok, S1};
+	Error -> {stop, Error}
+    end;
+handle_call(resume, _From, S=#s {pause = false}) ->
+    lager:debug("resume when not paused.", []),
+    {reply, ok, S};
+handle_call(dump, _From, S) ->
+    lager:debug("dump.", []),
+    {reply, {ok, S}, S};
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
 handle_call(_Request, _From, S) ->
@@ -317,6 +363,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+open(S=#s {pause = true}) ->
+    {ok, S};
 open(S0=#s {device = DeviceName, baud_rate = Baud }) ->
     UartOpts = [{mode,binary}, {baud, Baud}, {packet,0},
 		{csize, 8}, {stopb,1}, {parity,none}, {active, true}],
@@ -336,6 +384,8 @@ open(S0=#s {device = DeviceName, baud_rate = Baud }) ->
 	    Error
     end.
 
+reopen(S=#s {pause = true}) ->
+    {ok, S};
 reopen(S) ->
     if S#s.uart =/= undefined ->
 	    lager:debug("closing device ~s", [S#s.device]),
@@ -490,3 +540,8 @@ join([],_Sep) -> [].
 sum(Bin) -> sum(Bin,0).
 sum(<<C,Bin/binary>>, Sum) -> sum(Bin, Sum+C);
 sum(<<>>, Sum) -> Sum.
+
+server(Pid) when is_pid(Pid)->
+    Pid;
+server(BusId) when is_integer(BusId) ->
+    nmea_2000_router:interface_pid(BusId).

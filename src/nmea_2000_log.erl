@@ -44,11 +44,16 @@
 -export([transmit/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+-export([init/1, 
+	 handle_call/3, 
+	 handle_cast/2, 
+	 handle_info/2,
+	 terminate/2, 
+	 code_change/3]).
 
 %% Test API
 -export([pause/1, resume/1, restart/1]).
+-export([dump/1]).
 
 -record(s, {
 	  receiver={nmea_2000_router, undefined, 0} ::
@@ -62,7 +67,7 @@
 	  retry_timer,     %% Timer reference for retry
 	  read_timer,      %% Timer for reading data entries
 	  rotate = true,   %% Rotate or run once
-	  paused = false,  %% Pause input
+	  pause = false,   %% Pause input
 	  pgn_dict,        %% Place where PGNs are stored
 	  last_ts,         %% last time
 	  fs               %% nmea_2000_filter:new()
@@ -126,15 +131,19 @@ stop(BusId) ->
 	    Error
     end.
 
--spec pause(BusId::integer()) -> ok | {error, Error::atom()}.
-pause(BusId) when is_integer(BusId) ->
-    gen_server:call(server(BusId), pause).
--spec resume(BusId::integer()) -> ok | {error, Error::atom()}.
-resume(BusId) when is_integer(BusId) ->
-    gen_server:call(server(BusId), resume).
--spec restart(BusId::integer()) -> ok | {error, Error::atom()}.
-restart(BusId) when is_integer(BusId) ->
-    gen_server:call(server(BusId), restart).
+-spec pause(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+pause(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id), pause).
+-spec resume(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+resume(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id), resume).
+-spec restart(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+restart(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id), restart).
+
+-spec dump(Id::integer()| pid()) -> ok | {error, Error::atom()}.
+dump(Id) when is_integer(Id); is_pid(Id) ->
+    gen_server:call(server(Id),dump).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -165,6 +174,7 @@ init([Id,Opts]) ->
     Reject = proplists:get_value(reject, Opts, []),
     Default = proplists:get_value(default, Opts, accept),
     Rotate = proplists:get_value(rotate, Opts, true),
+    Pause = proplists:get_value(pause, Opts, false),
 
     File = proplists:get_value(file, Opts),
 
@@ -182,12 +192,12 @@ init([Id,Opts]) ->
 			    max_rate = MaxRate,
 			    retry_interval = RetryInterval,
 			    rotate = Rotate,
+			    pause = Pause,
 			    fs=nmea_2000_filter:new(Accept,Reject,Default)
 			  },
 		    lager:info("using file ~s\n", [LogFile]),
 		    case open_logfile(S) of
 			{ok, S1} -> 
-			    erlang:register(server(Id), self()),
 			    {ok, S1};
 			Error -> 
 			    {stop, Error}
@@ -219,11 +229,17 @@ handle_call({send,_Packet}, _From, S) ->
 handle_call(statistics,_From,S) ->
     {reply,{ok,nmea_2000_counter:list()}, S};
 handle_call(pause, _From, S) ->
-    {reply, ok, S#s {paused = true}};
+    lager:debug("pause.", []),
+    {reply, ok, S#s {pause = true}};
 handle_call(resume, _From, S) ->
-    {reply, ok, S#s {paused = false}};
+    lager:debug("resume.", []),
+    {reply, ok, S#s {pause = false}};
 handle_call(restart, _From, S) ->
+    lager:debug("restart.", []),
     {reply, ok, reopen_logfile(S)};
+handle_call(dump, _From, S) ->
+    lager:debug("dump.", []),
+    {reply, {ok, S}, S};
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
 handle_call(_Request, _From, S) ->
@@ -284,7 +300,7 @@ handle_info({timeout,TRef,reopen},S) when TRef =:= S#s.retry_timer ->
 	    {stop, Error, S}
     end;
 
-handle_info({timeout,_Ref,read},S) when S#s.paused =:= true ->
+handle_info({timeout,_Ref,read},S) when S#s.pause =:= true ->
     %% Restart timer
     Timer = start_timer(100, read),
     {noreply, S#s { read_timer = Timer }};
@@ -589,5 +605,7 @@ timestamp_to_ms({Date,{H,M,S},Milli}) ->
     Days = calendar:date_to_gregorian_days(Date),
     (((Days*24 + H)*60 + M)*60 + S)*1000 + Milli.
 
-server(BusId) ->
-    list_to_atom(atom_to_list(?SERVER) ++ integer_to_list(BusId)).
+server(Pid) when is_pid(Pid)->
+    Pid;
+server(BusId) when is_integer(BusId) ->
+    nmea_2000_router:interface_pid(BusId).
