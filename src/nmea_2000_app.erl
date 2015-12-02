@@ -29,6 +29,7 @@
 %% Application API
 -export([start/2, 
 	 stop/1]).
+-export([config_change/3]).
 
 %% Shortcut API
 -export([start/0,
@@ -69,6 +70,17 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     exit(normal).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% application changed config callback
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec config_change(Changed::list(),New::list(),Removed::list()) -> ok.
+			   
+config_change(Changed,New,Removed) ->
+    nmea_2000_router:config_change(Changed,New,Removed).
 
 %% ===================================================================
 %% Test support

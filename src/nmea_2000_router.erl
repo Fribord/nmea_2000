@@ -17,7 +17,7 @@
 %%% @author Tony Rogvall <tony@rogvall.se>
 %%% @copyright (C) 2013, Tony Rogvall
 %%% @doc
-%%%   CAN router
+%%%   NMEA_2000 router
 %%%
 %%% Created: 7 Jan 2008 by Tony Rogvall
 %%% @end
@@ -38,11 +38,17 @@
 -export([stop/1, restart/1]).
 -export([i/0, i/1]).
 -export([statistics/0]).
+-export([pause/1, resume/1]).
 -export([debug/2, interfaces/0, interface/1, interface_pid/1]).
+-export([config_change/3]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+-export([init/1, 
+	 handle_call/3, 
+	 handle_cast/2, 
+	 handle_info/2,
+	 terminate/2, 
+	 code_change/3]).
 
 -import(lists, [foreach/2, map/2, foldl/3]).
 
@@ -52,16 +58,16 @@
 
 -record(nmea_if,
 	{
-	  pid,      %% can interface pid
+	  pid,      %% nmea_2000 interface pid
 	  id,       %% interface id
-	  mon,      %% can app monitor
+	  mon,      %% nmea_2000 app monitor
 	  param     %% match param normally {Mod,Name,Index} 
 	}).
 
 -record(nmea_app,
 	{
-	  pid,       %% can app pid
-	  mon,       %% can app monitor
+	  pid,       %% nmea_2000 app pid
+	  mon,       %% nmea_2000 app monitor
 	  interface, %% interface id,
 	  filter     %% nmea_2000_filter:new()
 	 }).
@@ -69,7 +75,7 @@
 -record(s,
 	{
 	  if_count = 1,  %% interface id counter
-	  apps = []      %% attached can applications
+	  apps = []      %% attached nmea_2000 applications
 	}).
 
 -define(CLOCK_TIME, 16#ffffffff).
@@ -145,6 +151,12 @@ interface_pid(Id) ->
 debug(Id, Bool) ->
     call_if(Id, {debug, Bool}).
 
+pause(Id) when is_integer(Id)->
+    call_if(Id, pause).    
+
+resume(Id) when is_integer(Id)->
+    call_if(Id, resume).    
+
 stop(Id) ->
     call_if(Id, stop).    
 
@@ -185,14 +197,14 @@ call_if(Id, Request) ->
     case gen_server:call(?SERVER, {interface,Id}) of
 	{ok,If} ->
 	    gen_server:call(If#nmea_if.pid, Request);
-	{error,enoent} ->
+	{error,enoent} = E->
 	    io:format("~2w: no such interface\n", [Id]),
-	    {error,enoent};
+	    E;
 	Error ->
 	    Error
     end.
 
-%% attach - simulated can bus or application
+%% attach - simulated nmea_2000 bus or application
 attach() ->
     gen_server:call(?SERVER, {attach, self(), {[], [], accept}}).
 
@@ -212,7 +224,7 @@ attach(Accept, Reject, Default)
 detach() ->
     gen_server:call(?SERVER, {detach, self()}).
 
-%% add an interface to the simulated can_bus (may be a real canbus)
+%% add an interface to the simulated nmea_2000_bus (may be a real canbus)
 join(Params) ->
     gen_server:call(?SERVER, {join, self(), Params}).
 
@@ -256,12 +268,16 @@ input(Pid, Packet) when is_record(Packet, nmea_packet) ->
 input_from(Pid,Packet) when is_pid(Pid), is_record(Packet, nmea_packet) ->
     gen_server:cast(?SERVER, {input, Pid, Packet}).
 
+config_change(Changed,New,Removed) ->
+    gen_server:call(?SERVER, {config_change,Changed,New,Removed}).
+
 %%--------------------------------------------------------------------
 %% Shortcut API
 %%--------------------------------------------------------------------
 start() -> start([]).
 
-start(Args) ->
+start(Args0) ->
+    Args = Args0 ++ application:get_all_env(nmea_0183),
     application:load(nmea_2000),
     application:set_env(nmea_2000, arguments, Args),
     application:set_env(nmea_2000, interfaces, []),
@@ -282,12 +298,13 @@ stop() ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-init(_Args) ->
+init(_Args0) ->
+    %% Args = Args0 ++ application:get_all_env(nmea_2000),
     lager:start(),  %% ok testing, remain or go?
     process_flag(trap_exit, true),
-    can_counter:init(stat_in),   %% number of input packets received
-    can_counter:init(stat_out),  %% number of output packets  sent
-    can_counter:init(stat_err),  %% number of error packets received
+    nmea_2000_counter:init(stat_in),   %% number of input packets received
+    nmea_2000_counter:init(stat_out),  %% number of output packets  sent
+    nmea_2000_counter:init(stat_err),  %% number of error packets received
     {ok, #s{  }}.
 
 %%--------------------------------------------------------------------
@@ -386,6 +403,11 @@ handle_call({get_filter,Intf}, From, S) ->
 	    gen_server:cast(If#nmea_if.pid, {get_filter,From}),
 	    {noreply, S}
     end;
+
+handle_call({config_change,_Changed,_New,_Removed},_From,S) ->
+    lager:debug("config_change changed=~p, new=~p, removed=~p\n",
+		[_Changed,_New,_Removed]),
+    {reply, ok, S};
 
 handle_call(stop, _From, S) ->
     {stop, normal, ok, S};
@@ -487,7 +509,7 @@ add_app({Pid, {Accept, Reject, Default}}, S) ->
     end.
 
 count(Counter, S) ->
-    can_counter:update(Counter, 1),
+    nmea_2000_counter:update(Counter, 1),
     S.
 
 do_send(Pid, Packet, S) ->
@@ -542,8 +564,8 @@ send_if(If, Packet, S1) ->
     gen_server:cast(If#nmea_if.pid, {send, Packet}),
     S2.
 
-%% Broadcast a message to applications/simulated can buses
-%% and joined CAN interfaces
+%% Broadcast a message to applications/simulated nmea_2000 buses
+%% and joined NMEA_2000 interfaces
 %% 
 broadcast(Sender,Packet,S) ->
     S1 = broadcast_apps(Sender, Packet, S#s.apps, S),
