@@ -17,7 +17,7 @@ collect_packet(#can_frame { id=ID, len=Len, data=Data}, Fun, Dict) ->
     H = nmea_2000_lib:decode_canid(ID band ?CAN_EFF_MASK),
     collect_packet({H,Len,Data}, Fun, Dict);
 collect_packet({{Prio,PGN,Src,Dst},Len,Data}, Fun, Dict) ->
-    case nmea_2000_pgn:is_fast(PGN) of
+    try nmea_2000_pgn:is_fast(PGN) of
 	false ->
 	    P = #nmea_packet { pgn = PGN,
 			       order = 0,
@@ -66,6 +66,9 @@ collect_packet({{Prio,PGN,Src,Dst},Len,Data}, Fun, Dict) ->
 			    Dict
 		    end
 	    end
+    catch
+	error:_ ->  %% packet is not defined drop it
+	    Dict
     end.
 
 fun_packet(Fun, P = #nmea_packet{len=Len, totlen=TLen, data=Data}) when Len >= TLen ->
