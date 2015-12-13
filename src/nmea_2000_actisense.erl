@@ -46,8 +46,8 @@
 
 %% export for testing
 -export([escape/1, unescape/1]).
-
-
+-export([encode_message/2, decode_message/1]).
+-export([find_message/1]).
 
 -record(s, {
 	  receiver={nmea_2000_router, undefined, 0} ::
@@ -79,6 +79,8 @@
 -define(DEFAULT_IF,              0).
 
 -define(COMMAND_TIMEOUT, 500).
+
+-define(MAX_MESSAGE_LEN, 512).  %% max unescaped message
 
 -define(NGT_STARTUP_SEQ, <<16#11, 16#02, 16#00>>).
 
@@ -306,8 +308,8 @@ handle_cast(_Mesg, S) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info({uart,U,Data}, S) when S#s.uart == U ->
-    S1 = receive_message(Data, S),
+handle_info({uart,U,Data}, S) when S#s.uart =:= U ->
+    S1 = receive_data(Data, S),
     {noreply, S1};
 handle_info({uart_error,U,Reason}, S) when U =:= S#s.uart ->
     if Reason =:= enxio ->
@@ -432,59 +434,60 @@ send_n2k_message(Data, S) ->
 %% DLE is escaped in that as DLE DLE
 %% sum ( command len, unescaped data, checksum ) = 0 mod 256
 send_message(Uart, Command, Data) when is_binary(Data) ->
-    Data1 = escape(Data),
-    Len   = byte_size(Data),
-    Sum   = -(Command+Len+sum(Data)),
-    uart:send(Uart, <<?DLE,?STX,Command,Len,Data1/binary,Sum,?DLE,?ETX>>).
+    uart:send(Uart, encode_message(Command, Data)).
 
-receive_message(Data, S) when is_binary(Data) ->
-    scan_dle_stx(<<(S#s.buf)/binary, Data/binary>>, S).
+receive_data(Data, S) when is_binary(Data) ->
+    process_message(<<(S#s.buf)/binary, Data/binary>>, S).
 
 %% throw all data not matching DLE STX
-scan_dle_stx(S) ->
-    scan_dle_stx(S#s.buf, S#s { buf = <<>> }).
-    
-scan_dle_stx(Data = <<?DLE,?STX,_/binary>>, S) -> scan_dle_stx_(Data, S);
-scan_dle_stx(Data = <<?DLE>>, S) -> S#s { buf = Data };
-scan_dle_stx(<<?DLE,?DLE,Data/binary>>, S) -> scan_dle_stx(Data, S);
-scan_dle_stx(<<_,Data/binary>>, S) -> scan_dle_stx(Data, S);
-scan_dle_stx(<<>>, S) -> S#s { buf = <<>> }.
 
-%% 
-scan_dle_stx_(Data0 = <<?DLE,?STX,Command,Len,Data/binary>>, S) ->
-    case find_dle_etx(Data, 0) of
-	false ->
-	    S#s { buf = Data0 };
-	0 ->
-	    lager:warning("scan_dle_stx, no checksum found, dropped", []),
-	    S#s { buf = <<>> };
-	I ->
-	    Sz = I-1,
-	    <<Data1:Sz/binary,Sum,Buf/binary>> = Data,
-	    handle_msg(Command,Len,unescape(Data1),Sum,S#s { buf = Buf })
-    end;
-scan_dle_stx_(Data,S) ->
-    S#s { buf = Data }.
-
-
-find_dle_etx(<<?DLE,?ETX,_/binary>>, I) -> I;
-find_dle_etx(<<?DLE,?DLE,Rest/binary>>, I) -> find_dle_etx(Rest, I+2);
-find_dle_etx(<<_,Rest/binary>>, I) -> find_dle_etx(Rest, I+1);
-find_dle_etx(<<>>, _I) -> false.
-
-handle_msg(Command,Len,Data,Sum,S) ->
-    Check = (Command+Len+sum(Data)+Sum) band 16#ff,
-    if Len =:= byte_size(Data), Check =:= 0 ->
-	    S1 = input_msg(Command,Data,S),
-	    scan_dle_stx(S1);
-       Len =/= byte_size(Data) ->
-	    lager:warning("bad message bad length ~w expected ~w", 
-		     [byte_size(Data), Len]),
-	    scan_dle_stx(S);
-       true ->
-	    lager:warning("bad message checksum ~w", [Check]),
-	    scan_dle_stx(S)
+process_message(Buf, S) ->
+    case find_message(Buf) of
+	{{ok,{Command,Message}},Buf1} ->
+	    S1 = input_msg(Command,Message,S),
+	    process_message(Buf1, S1);
+	{more, Buf1} ->
+	    S#s { buf = Buf1 };
+	{{error,bad_checksum},Buf1} ->
+	    lager:warning("scan_dle_stx, bad message checksum", []),
+	    process_message(Buf1, S);
+	{{error,message_too_short},Buf1} ->
+	    lager:warning("scan_dle_stx, message too short", []),
+	    process_message(Buf1, S);
+	{{error,message_too_long},Buf1} ->
+	    lager:warning("scan_dle_stx, message too long", []),
+	    process_message(Buf1, S);
+	{{error,empty_message},Buf1} ->
+	    lager:warning("scan_dle_stx, empty message", []),
+	    process_message(Buf1, S)
     end.
+
+find_message(Buf1 = <<?DLE,?STX,Buf2/binary>>) -> 
+    case find_end(Buf2, 0, ?MAX_MESSAGE_LEN) of
+	false ->
+	    {more, Buf1};
+	error ->
+	    {{error,message_too_long}, Buf2};
+	0 ->
+	    <<?DLE,?ETX,Buf3/binary>> = Buf2, %% skip
+	    {{error,empty_message}, Buf3};
+	I ->
+	    Sz = I+4,  %% include ?DLE,STX ... ?DLE,?ETX
+	    <<Data2:Sz/binary,Buf3/binary>> = Buf1,
+	    Res = decode_message(Data2),
+	    {Res, Buf3}
+    end;
+find_message(Data = <<?DLE>>) -> {more, Data};
+find_message(<<?DLE,?DLE,Data/binary>>) -> find_message(Data);
+find_message(<<_,Data/binary>>) -> find_message(Data);
+find_message(<<>>) -> {more, <<>>}.
+
+%% locate DLX ETX pair
+find_end(<<?DLE,?ETX,_/binary>>, I, _Max) -> I;
+find_end(<<?DLE,?DLE,Rest/binary>>, I, Max) -> find_end(Rest, I+2, Max);
+find_end(<<_,_Rest/binary>>, I, Max) when I>=Max -> error;
+find_end(<<_,Rest/binary>>, I, Max) -> find_end(Rest, I+1, Max);
+find_end(<<>>, _I, _Max) -> false.
 
 input_msg(?N2K_MSG_RECEIVED, <<Prio,PGN:24/little,Dst,Src,
 			       TimeStamp:4/binary,  %% is order here?
@@ -530,6 +533,32 @@ input_packet(Packet,{Module, Pid, _If}) when is_atom(Module), is_pid(Pid) ->
 count(Counter,S) ->
     nmea_2000_counter:update(Counter, 1),
     S.
+
+encode_message(Command, Data) ->
+    Len   = byte_size(Data),
+    Sum   = -(Command+Len+sum(Data)),
+    Data0 = <<Command,Len,Data/binary,Sum>>,
+    Data1 = escape(Data0),
+    <<?DLE,?STX,Data1/binary,?DLE,?ETX>>.
+
+decode_message(Data) ->
+    case unescape(Data) of
+	<<?DLE,?STX,Command,Len,Data1:Len/binary,Sum,?DLE,?ETX>> ->
+	    Check = (Command+Len+sum(Data1)+Sum) band 16#ff,
+	    if Check =:= 0 ->
+		    {ok,{Command,Data1}};
+	       true ->
+		    {error,bad_checksum}
+	    end;
+	<<?DLE,?STX,_Command,Len,Data1/binary>> ->
+	    if Len < byte_size(Data1) ->
+		    {error, message_too_long};
+	       true ->
+		    {error, message_too_short}
+	    end;
+	<<?DLE,?STX,_Data1/binary>> ->
+	    {error, message_too_short}
+    end.
 
 escape(Data) ->
     list_to_binary(join(binary:split(Data, <<?DLE>>, [global]), <<?DLE,?DLE>>)).
