@@ -278,7 +278,7 @@ config_change(Changed,New,Removed) ->
 start() -> start([]).
 
 start(Args0) ->
-    Args = Args0 ++ application:get_all_env(nmea_0183),
+    Args = Args0 ++ application:get_all_env(nmea_2000),
     application:load(nmea_2000),
     application:set_env(nmea_2000, arguments, Args),
     application:set_env(nmea_2000, interfaces, []),
