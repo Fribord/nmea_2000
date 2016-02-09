@@ -58,7 +58,7 @@
 -record(s, {
 	  receiver={nmea_2000_router, undefined, 0} ::
 	    {Module::atom(), %% Module to join and send to
-	     Pid::pid(),     %% Pid if not default server
+	     Pid::pid() | undefined,     %% Pid if not default server
 	     If::integer()}, %% Interface id
 	  file,              %% file name
 	  fd,                %% open file descriptor
@@ -320,9 +320,6 @@ handle_info({timeout,Ref,read},S) when Ref =:= S#s.read_timer ->
 			    {noreply, S#s { fd = undefined,
 					    last_ts = undefined }}
 		    end;
-		error ->
-		    lager:warning("read_can_frame go error (corrupt file?)",[]),
-		    {noreply, reopen_logfile(S)};
 		CanFrame ->
 		    Fun = fun(Packet) -> input(Packet, S) end,
 		    Dict = nmea_2000_packet:collect_packet(CanFrame,
