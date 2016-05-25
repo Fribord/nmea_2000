@@ -449,7 +449,7 @@ process_message(Buf, S) ->
 	{more, Buf1} ->
 	    S#s { buf = Buf1 };
 	{{error,bad_checksum},Buf1} ->
-	    lager:warning("scan_dle_stx, bad message checksum", []),
+	    lager:debug("scan_dle_stx, bad message checksum", []),
 	    process_message(Buf1, S);
 	{{error,message_too_short},Buf1} ->
 	    lager:warning("scan_dle_stx, message too short", []),
