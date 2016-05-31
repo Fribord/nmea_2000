@@ -37,10 +37,11 @@
 %% Test api
 -export([test/1]).
 -export([emit_log/1]).
--export([pause/0, resume/0]).
--export([pause/1, resume/1]).
+-export([pause/0, resume/0, ifstatus/0]).
+-export([pause/1, resume/1, ifstatus/1]).
 
 -define(SERVER, nmea_2000_srv).
+-define(ROUTER, nmea_2000_router).
 
 start() ->
     application:start(can),
@@ -75,7 +76,7 @@ input(Frame) when is_record(Frame, can_frame) ->
 %%--------------------------------------------------------------------
 -spec pause(If::integer()) -> ok | {error, Reason::term()}.
 pause(If) when is_integer(If) ->
-    nmea_2000_router:pause(If).
+    ?ROUTER:pause(If).
 
 -spec pause() -> {error, Reason::term()}.
 pause() ->
@@ -88,10 +89,23 @@ pause() ->
 %%--------------------------------------------------------------------
 -spec resume(If::integer()) -> ok | {error, Reason::term()}.
 resume(If) when is_integer(If) ->
-    nmea_2000_router:resume(If).
+    ?ROUTER:resume(If).
     
 -spec resume() -> {error, Reason::term()}.
 resume() ->
+    {error, interface_required}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Get active status of interface.
+%% @end
+%%--------------------------------------------------------------------
+-spec ifstatus(If::integer()) -> {ok, Status::atom()} | {error, Reason::term()}.
+ifstatus(If) when is_integer(If) ->
+    ?ROUTER:ifstatus(If).
+    
+-spec ifstatus() -> {error, Reason::term()}.
+ifstatus() ->
     {error, interface_required}.
 
 %%--------------------------------------------------------------------
