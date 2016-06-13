@@ -244,7 +244,8 @@ format_binding(F,_Last,_AllowLast) ->
 	undefined ->
 	    ID = get_id(F),
 	    Var = get_var(F),
-	    Res = proplists:get_value(resolution,F),
+	    %% Res = proplists:get_value(resolution,F),
+	    Res = undefined,  %% Software must scale!
 	    if Res =:= undefined; Res =:= 0; Res =:= 1 ->
 		    ["{",ID,",",Var,"}"];
 	       true ->
