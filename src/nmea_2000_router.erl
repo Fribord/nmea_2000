@@ -144,7 +144,7 @@ interface(Id) ->
 	[] ->
 	    {error,enoent};
 	Ifs when is_list(Ifs)->
-	    lager:warning("~p: several interfaces\n", [Ifs]),
+	    lager:warning("~p: several interfaces", [Ifs]),
 	    {error,not_unique};
 	{error,enoent} ->
 	    {error,enoent};
@@ -172,8 +172,8 @@ ifstatus(Id) when is_integer(Id)->
 
 ifstatus() ->
     %% For all interfaces
-    lists:foldl(fun(#nmea_if{pid = Pid, param = {BE, _, BI}}, Acc) ->
-			[{{BE, BI}, gen_server:call(Pid, ifstatus)} | Acc]
+    lists:foldl(fun(#nmea_if{pid = Pid, id = Id, param = {BE, _, _}}, Acc) ->
+			[{{BE, Id}, gen_server:call(Pid, ifstatus)} | Acc]
 		end, [], interfaces()).
 
 stop(Id) ->
@@ -216,14 +216,16 @@ call_if(Id, Request) ->
     lager:debug("call ~p, request ~p",[Id, Request]),
     case gen_server:call(?SERVER, {interface,Id}) of
 	{ok,If} ->
+	    lager:debug("calling ~p", [If]),
 	    gen_server:call(If#nmea_if.pid, Request);
 	[If] when is_record(If, nmea_if)->
+	    lager:debug("calling ~p", [If]),
 	    gen_server:call(If#nmea_if.pid, Request);
 	[] ->
-	    lager:debug("~2w: no such interface\n", [Id]),
+	    lager:debug("~2w: no such interface", [Id]),
 	    {error,enoent};
 	Ifs when is_list(Ifs)->
-	    lager:warning("~p: several interfaces\n", [Ifs]),
+	    lager:warning("~p: several interfaces", [Ifs]),
 	    {error,not_unique};
 	{error,enoent} = E->
 	    io:format("~2w: no such interface\n", [Id]),
@@ -373,7 +375,7 @@ handle_call({join,Pid,Param}, _From, S) ->
 	If ->
 	    receive
 		{'EXIT', OldPid, _Reason} when If#nmea_if.pid =:= OldPid ->
-		    lager:debug("join: restart detected\n", []),
+		    lager:debug("join: restart detected", []),
 		    {ID,S1} = add_if(Pid,Param,S),
 		    {reply, {ok,ID}, S1}
 	    after 0 ->
@@ -435,7 +437,7 @@ handle_call({get_filter,Intf}, From, S) ->
     end;
 
 handle_call({config_change,_Changed,_New,_Removed},_From,S) ->
-    lager:debug("config_change changed=~p, new=~p, removed=~p\n",
+    lager:debug("config_change changed=~p, new=~p, removed=~p",
 		[_Changed,_New,_Removed]),
     {reply, ok, S};
 
@@ -476,13 +478,13 @@ handle_info({'DOWN',_Ref,process,Pid,_Reason},S) ->
 		false ->
 		    {noreply, S};
 		If ->
-		    lager:debug("interface ~p died, reason ~p\n", 
+		    lager:debug("interface ~p died, reason ~p", 
 				[If, _Reason]),
 		    erase_interface(If#nmea_if.id),
 		    {noreply,S}
 	    end;
 	{value,_App,Apps} ->
-	    lager:debug("application ~p died, reason ~p\n", 
+	    lager:debug("application ~p died, reason ~p", 
 			[_App, _Reason]),
 	    %% FIXME: Restart?
 	    {noreply,S#s { apps = Apps }}
@@ -491,12 +493,12 @@ handle_info({'EXIT', Pid, Reason}, S) ->
     case get_interface_by_pid(Pid) of
 	false ->
 	    %% Someone else died, log and terminate
-	    lager:debug("linked process ~p died, reason ~p, terminating\n", 
+	    lager:debug("linked process ~p died, reason ~p, terminating", 
 			[Pid, Reason]),
 	    {stop, Reason, S};
 	If ->
 	    %% One of our interfaces died, log and ignore
-	    lager:debug("interface ~p died, reason ~p\n", [If, Reason]),
+	    lager:debug("interface ~p died, reason ~p", [If, Reason]),
 	    erase_interface(If#nmea_if.id),
 	    {noreply,S}
     end;
