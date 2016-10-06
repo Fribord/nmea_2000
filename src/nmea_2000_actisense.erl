@@ -386,7 +386,7 @@ open(S=#s {pause = true}) ->
 open(S0=#s {device = DeviceName, baud_rate = Baud }) ->
     UartOpts = [{mode,binary}, {baud, Baud}, {packet,0},
 		{csize, 8}, {stopb,1}, {parity,none}, {active, true}],
-    case uart:open(DeviceName, UartOpts) of
+    case uart:open1(DeviceName, UartOpts) of
 	{ok,Uart} ->
 	    lager:debug("~s@~w", [DeviceName,Baud]),
 	    send_message(Uart, ?NGT_MSG_SEND, ?NGT_STARTUP_SEQ),
