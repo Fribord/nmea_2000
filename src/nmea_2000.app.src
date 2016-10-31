@@ -1,3 +1,4 @@
+%% -*- erlang -*-
 {application, nmea_2000,
  [
   {description, ""},
@@ -5,7 +6,8 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+		  elarm
                  ]},
   {mod, { nmea_2000_app, []}},
   {env, []}

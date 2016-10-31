@@ -73,6 +73,7 @@
 
 -define(SUBSYS, ?MODULE).
 -define(SERVER, ?MODULE).
+-define(ALARM, 'interface-down').
 
 
 -define(DEFAULT_RETRY_INTERVAL,  2000).
@@ -390,19 +391,19 @@ open(S0=#s {device = DeviceName, baud_rate = Baud }) ->
     case uart:open1(DeviceName, UartOpts) of
 	{ok,Uart} ->
 	    lager:debug("~s@~w", [DeviceName,Baud]),
-	    elarm:clear('interface-down', ?SUBSYS),
+	    elarm:clear(?ALARM, ?SUBSYS),
 	    send_message(Uart, ?NGT_MSG_SEND, ?NGT_STARTUP_SEQ),
 	    %% fixme wait 2 secs ????
 	    {ok, S0#s { uart = Uart }};
 	{error,E} when E =:= eaccess; E =:= enoent ->
 	    lager:debug("~s@~w  error ~w, will try again in ~p msecs.", 
 			[DeviceName,Baud,E,S0#s.retry_interval]),
-	    elarm:raise('interface-down', ?SUBSYS, [{device, DeviceName}]),
+	    elarm:raise(?ALARM, ?SUBSYS, [{device, DeviceName}]),
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
 	Error ->
 	    lager:error("error ~w", [Error]),
-	    elarm:raise('interface-down', ?SUBSYS, [{device, DeviceName}]),
+	    elarm:raise(?ALARM, ?SUBSYS, [{device, DeviceName}]),
 	    Error
     end.
 
@@ -413,7 +414,7 @@ reopen(S=#s {device = DeviceName}) ->
 	    lager:debug("closing device ~s", [DeviceName]),
 	    R = uart:close(S#s.uart),
 	    lager:debug("closed ~p", [R]),
-	    elarm:raise('interface-down', ?SUBSYS, [{device, DeviceName}]),
+	    elarm:raise(?ALARM, ?SUBSYS, [{device, DeviceName}]),
 	    R;
        true ->
 	    ok
