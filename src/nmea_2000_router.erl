@@ -1,6 +1,6 @@
 %%%---- BEGIN COPYRIGHT -------------------------------------------------------
 %%%
-%%% Copyright (C) 2007 - 2012, Rogvall Invest AB, <tony@rogvall.se>
+%%% Copyright (C) 2007 - 2016, Rogvall Invest AB, <tony@rogvall.se>
 %%%
 %%% This software is licensed as described in the file COPYRIGHT, which
 %%% you should have received as part of this distribution. The terms
@@ -15,7 +15,8 @@
 %%%
 %%%---- END COPYRIGHT ---------------------------------------------------------
 %%% @author Tony Rogvall <tony@rogvall.se>
-%%% @copyright (C) 2013, Tony Rogvall
+%%% @author Marina Westman Lonne <malotte@malotte.net>
+%%% @copyright (C) 2016, Tony Rogvall
 %%% @doc
 %%%   NMEA_2000 router
 %%%
@@ -60,8 +61,9 @@
 	{
 	  pid,      %% nmea_2000 interface pid
 	  id,       %% interface id
+	  name,     %% name for easier identification
 	  mon,      %% nmea_2000 app monitor
-	  param     %% match param normally {Mod,Name,Index} 
+	  param     %% match param normally {Mod,Device,Index,Name}
 	}).
 
 -record(nmea_app,
@@ -172,8 +174,9 @@ ifstatus(Id) when is_integer(Id)->
 
 ifstatus() ->
     %% For all interfaces
-    lists:foldl(fun(#nmea_if{pid = Pid, id = Id, param = {BE, _, _}}, Acc) ->
-			[{{BE, Id}, gen_server:call(Pid, ifstatus)} | Acc]
+    lists:foldl(fun(#nmea_if{pid = Pid, param = {_, _, _,Name}}, Acc) ->
+			[{{nmea_2000, Name},
+			  gen_server:call(Pid, ifstatus)} | Acc]
 		end, [], interfaces()).
 
 stop(Id) ->
@@ -183,9 +186,9 @@ restart(Id) ->
     case gen_server:call(?SERVER, {interface,Id}) of
 	{ok,If} ->
 	    case If#nmea_if.param of
-		{nmea_2000_actisense,_,N} ->
+		{nmea_2000_actisense,_,Index,_} ->
 		    ok = gen_server:call(If#nmea_if.pid, stop),
-		    nmea_2000_actisense:start(N)
+		    nmea_2000_actisense:start(Index)
 		%% add nmea_2000_file
 	    end;
 	Error ->
@@ -258,7 +261,7 @@ detach() ->
 join(Params) ->
     gen_server:call(?SERVER, {join, self(), Params}).
 
-join(Pid, Params) ->
+join(Pid, Params) when is_pid(Pid) ->
     gen_server:call(Pid, {join, self(), Params}).
 
 add_filter(Intf, Accept, Reject) 
@@ -389,6 +392,8 @@ handle_call({interface,I}, _From, S) when is_integer(I) ->
 	If ->
 	    {reply, {ok,If}, S}
     end;
+handle_call({interface, Name}, _From, S) when is_list(Name)->
+    {reply, get_interface_by_name(Name), S};
 handle_call({interface, {_BackEnd, _BusId} = B}, _From, S) ->
     {reply, get_interface_by_backend(B), S};
 handle_call({interface,Param}, _From, S) ->
@@ -586,10 +591,17 @@ get_interface_by_param(Param) ->
 get_interface_by_pid(Pid) ->
     lists:keyfind(Pid, #nmea_if.pid, get_interface_list()).
 
+get_interface_by_name(Name) ->
+    lists:foldl(fun(If=#nmea_if{param = {_, _, _, N}}, Acc)
+		      when N =:= Name -> [If | Acc];
+		   (_OtherIf, Acc) ->
+			Acc
+		end, [], get_interface_list()).
+
 get_interface_by_backend({BackEnd, BusId}) ->
-    lists:foldl(fun(If=#nmea_if{param = {BE, _, BI}}, Acc) 
+    lists:foldl(fun(If=#nmea_if{param = {BE, _, BI, _}}, Acc)
 		      when BE =:= BackEnd, BI =:= BusId -> [If | Acc];
-		   (_OtherIf, Acc) -> 
+		   (_OtherIf, Acc) ->
 			Acc
 		end, [], get_interface_list()).
 
