@@ -409,13 +409,13 @@ open(S0=#s {name = Name, device = DeviceName, baud_rate = Baud }) ->
 	    lager:debug("~s@~w  error ~w, will try again in ~p msecs.", 
 			[DeviceName,Baud,E,S0#s.retry_interval]),
 	    elarm:raise(?ALARM, ?SUBSYS,
-			[{device, DeviceName}, {interface, Name}]),
+			[{id, Name}, {device, DeviceName}]),
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
 	Error ->
 	    lager:error("error ~w", [Error]),
 	    elarm:raise(?ALARM, ?SUBSYS,
-			[{device, DeviceName}, {interface, Name}]),
+			[{id, Name}, {device, DeviceName}]),
 	    Error
     end.
 
@@ -427,7 +427,7 @@ reopen(S=#s {name = Name, device = DeviceName}) ->
 	    R = uart:close(S#s.uart),
 	    lager:debug("closed ~p", [R]),
 	    elarm:raise(?ALARM, ?SUBSYS,
-			[{device, DeviceName}, {interface, Name}]),
+			[{id, Name}, {device, DeviceName}]),
 	    R;
        true ->
 	    ok
