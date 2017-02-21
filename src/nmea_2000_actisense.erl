@@ -64,6 +64,7 @@
 	  retry_interval,  %% Timeout for open retry
 	  retry_timer,     %% Timer reference for retry
 	  pause = false,   %% Pause input
+	  alarm = false ::boolean(),
 	  buf = <<>>,      %% parse buffer
 	  fs               %% can_filter:new()
 	 }).
@@ -215,7 +216,7 @@ init([Id,Opts]) ->
 		    lager:info("using device ~s@~w\n", [Device, Baud]),
 		    case open(S) of
 			{ok, S1} -> {ok, S1};
-			Error -> {stop, Error}
+			{Error, _S1} -> {stop, Error}
 		    end;
 		{error, Reason} = E ->
 		    lager:error("Failed to join ~p(~p), reason ~p", 
@@ -255,7 +256,7 @@ handle_call(pause, _From, S=#s {pause = false, uart = Uart})
     R = uart:close(S#s.uart),
     lager:debug("closed ~p", [R]),
     elarm:clear(?ALARM, ?SUBSYS),
-    {reply, ok, S#s {pause = true}};
+    {reply, ok, S#s {pause = true, alarm = false}};
 handle_call(pause, _From, S) ->
     lager:debug("pause when not active.", []),
     {reply, ok, S#s {pause = true}};
@@ -263,7 +264,7 @@ handle_call(resume, _From, S=#s {pause = true}) ->
     lager:debug("resume.", []),
     case open(S#s {pause = false}) of
 	{ok, S1} -> {reply, ok, S1};
-	Error -> {reply, Error, S}
+	{Error, S1} -> {reply, Error, S1}
     end;
 handle_call(resume, _From, S=#s {pause = false}) ->
     lager:debug("resume when not paused.", []),
@@ -335,29 +336,33 @@ handle_cast(_Mesg, S) ->
 handle_info({uart,U,Data}, S) when S#s.uart =:= U ->
     S1 = receive_data(Data, S),
     {noreply, S1};
-handle_info({uart_error,U,Reason}, S) when U =:= S#s.uart ->
+handle_info({uart_error,U,Reason},
+	    S=#s{uart = U, name = Name, device = DeviceName}) ->
     if Reason =:= enxio ->
-	    lager:error("uart error ~p device ~s unplugged?", 
-			[Reason,S#s.device]),
-	    {noreply, reopen(S)};
+	    elarm:raise(?ALARM, ?SUBSYS,
+			[{id, Name}, {device, DeviceName}, 
+			 {reason, {enxio, "maybe unplugged?"}}]),
+	    {noreply, reopen(S#s {alarm = true})};
        true ->
-	    lager:error("uart error ~p for device ~s", 
-			[Reason,S#s.device]),
-	    {noreply, S}
+	    elarm:raise(?ALARM, ?SUBSYS,
+			[{id, Name}, {device, DeviceName},
+			 {reason, {uart_error, Reason}}]),
+	    {noreply, S#s {alarm = true}}
     end;
 
-handle_info({uart_closed,U}, S) when U =:= S#s.uart ->
-    lager:error("uart device closed, will try again in ~p msecs.",
-		[S#s.retry_interval]),
-    S1 = reopen(S),
+handle_info({uart_closed,U}, 
+	    S=#s{uart = U, name = Name, device = DeviceName}) ->
+    elarm:raise(?ALARM, ?SUBSYS,
+		[{id, Name}, {device, DeviceName}, {reason, uart_closed}]),
+    S1 = reopen(S#s {alarm = true}),
     {noreply, S1};
 
 handle_info({timeout,TRef,reopen},S) when TRef =:= S#s.retry_timer ->
     case open(S#s { retry_timer = undefined }) of
 	{ok, S1} ->
 	    {noreply, S1};
-	Error ->
-	    {stop, Error, S}
+	{Error, S1} ->
+	    {stop, Error, S1}
     end;
 
 handle_info(_Info, S) ->
@@ -404,30 +409,27 @@ open(S0=#s {name = Name, device = DeviceName, baud_rate = Baud }) ->
 	    elarm:clear(?ALARM, ?SUBSYS),
 	    send_message(Uart, ?NGT_MSG_SEND, ?NGT_STARTUP_SEQ),
 	    %% fixme wait 2 secs ????
-	    {ok, S0#s { uart = Uart }};
+	    {ok, S0#s { uart = Uart, alarm = false }};
 	{error,E} when E =:= eaccess; E =:= enoent ->
 	    lager:debug("~s@~w  error ~w, will try again in ~p msecs.", 
 			[DeviceName,Baud,E,S0#s.retry_interval]),
 	    elarm:raise(?ALARM, ?SUBSYS,
-			[{id, Name}, {device, DeviceName}]),
+			[{id, Name}, {device, DeviceName}, {reason, E}]),
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
-	Error ->
-	    lager:error("error ~w", [Error]),
+	{error, E} ->
 	    elarm:raise(?ALARM, ?SUBSYS,
-			[{id, Name}, {device, DeviceName}]),
-	    Error
+			[{id, Name}, {device, DeviceName}, {reason, E}]),
+	    {E, S0#s {alarm = true}}
     end.
 
 reopen(S=#s {pause = true}) ->
     S;
-reopen(S=#s {name = Name, device = DeviceName}) ->
+reopen(S=#s {device = DeviceName}) ->
     if S#s.uart =/= undefined ->
 	    lager:debug("closing device ~s", [DeviceName]),
 	    R = uart:close(S#s.uart),
 	    lager:debug("closed ~p", [R]),
-	    elarm:raise(?ALARM, ?SUBSYS,
-			[{id, Name}, {device, DeviceName}]),
 	    R;
        true ->
 	    ok
@@ -608,7 +610,11 @@ sum(<<>>, Sum) -> Sum.
 call(Pid, Request) when is_pid(Pid) -> 
     gen_server:call(Pid, Request);
 call(Id, Request) when is_integer(Id); is_list(Id) ->
-    case nmea_2000_router:interface_pid({?MODULE, Id})  of
+    Interface = case Id of
+		    Name when is_list(Name) -> Name;
+		    I when is_integer(I) -> {?MODULE, I}
+		end,
+    case nmea_2000_router:interface_pid(Interface)  of
 	Pid when is_pid(Pid) -> gen_server:call(Pid, Request);
 	Error -> Error
     end.
