@@ -49,13 +49,15 @@
 
 %% For dialyzer
 -type start_options()::{linked, TrueOrFalse::boolean()} |
-		       {duration, Duration::integer()}.
+		       {duration, Duration::integer()} |
+		       {interval, Interval::integer()}.
 
 %% Loop data
 -record(ctx,
 	{
-	  state = init ::atom(),
-	  pgn_table = []
+	  state = init::atom(),
+	  interval = 0::integer(),
+	  pgn_table = []::list({Pgn::integer(), Counter::integer()})
 	}).
 -ifdef(DBG).
 -define(dbg(Msg), io:format(Msg)).
@@ -130,10 +132,16 @@ dump() ->
 
 init(Args) ->
     ?dbg("args = ~p,\n pid = ~p\n", [Args, self()]),
-    Time =  proplists:get_value(duration,Args,?DEFAULT_DURATION),
-    io:format("Will execute ~p seconds.~n", [Time]),
+    Duration =  proplists:get_value(duration,Args,?DEFAULT_DURATION),
+    io:format("Will execute ~p seconds.~n", [Duration]),
+    erlang:start_timer(Duration * 1000, self(), stop),
+    case proplists:get_value(interval,Args,0) of
+	I when I > 0 ->
+	    io:format("Will report with ~p seconds interval.~n", [I]),
+	    erlang:start_timer(I * 1000, self(), {interval, I});
+	_I -> ok
+    end,
     nmea_2000_router:attach(),
-    erlang:start_timer(Time * 1000, self(), stop),
     {ok, #ctx {}}.
 
 %%--------------------------------------------------------------------
@@ -157,8 +165,8 @@ init(Args) ->
 			 {noreply, Ctx::#ctx{}} |
 			 {stop, Reason::atom(), Reply::term(), Ctx::#ctx{}}.
 
-handle_call(dump, _From, Ctx) ->
-    ?dbg("Ctx: ~p.", [Ctx]),
+handle_call(dump, _From, Ctx=#ctx {pgn_table = PgnTable}) ->
+    print_table(PgnTable),
     {reply, ok, Ctx};
 
 handle_call(stop, _From, Ctx=#ctx {pgn_table = PgnTable}) ->
@@ -207,6 +215,11 @@ handle_info(Packet, Ctx)
   when is_record(Packet, nmea_packet) ->
     ?dbg("Packet ~p.", [Packet]),
     {noreply, handle_packet(Packet, Ctx)};
+
+handle_info({timeout,_TRef,{interval, I}},Ctx=#ctx {pgn_table = PgnTable}) ->
+    print_table(PgnTable),
+    erlang:start_timer(I * 1000, self(), {interval, I}),
+    {noreply, Ctx#ctx {pgn_table = []}};
 
 handle_info({timeout,_TRef,stop},Ctx=#ctx {pgn_table = PgnTable}) ->
     print_table(PgnTable),
