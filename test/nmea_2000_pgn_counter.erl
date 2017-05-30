@@ -235,9 +235,9 @@ handle_info(_Info, Ctx) ->
 -spec terminate(Reason::term(), Ctx::#ctx{}) -> 
 		       no_return().
 
-terminate(_Reason, _Ctx=#ctx {state = State}) ->
+terminate(_Reason, _Ctx=#ctx {state = _State}) ->
     ?dbg("terminating in state ~p, reason = ~p.",
-	 [State, _Reason]),
+	 [_State, _Reason]),
     ok.
 %%--------------------------------------------------------------------
 %% @private
@@ -257,11 +257,12 @@ code_change(_OldVsn, Ctx, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-handle_packet(Packet=#nmea_packet {pgn = Pgn}, Ctx=#ctx {pgn_table = PgnTable}) ->
+handle_packet(_Packet=#nmea_packet {pgn = Pgn}, 
+	      Ctx=#ctx {pgn_table = PgnTable}) ->
     ?dbg("src:~w pgn:~w totlen=~w, len=~w data=~p\n", 
-		[Packet#nmea_packet.src,Packet#nmea_packet.pgn,
-		 Packet#nmea_packet.totlen,Packet#nmea_packet.len,
-		 Packet#nmea_packet.data]),
+		[_Packet#nmea_packet.src,_Packet#nmea_packet.pgn,
+		 _Packet#nmea_packet.totlen,_Packet#nmea_packet.len,
+		 _Packet#nmea_packet.data]),
     NewPgnTable = 
 	case lists:keytake(Pgn, 1, PgnTable) of
 	    false -> [{Pgn, 1} | PgnTable];
@@ -273,4 +274,4 @@ print_table(PgnTable) ->
     io:format("Counted PGN:s~n"),
     lists:foreach(fun({Pgn, Counter}) ->
 			  io:format("~p: ~p~n", [Pgn, Counter])
-		  end, PgnTable).
+		  end, lists:sort(PgnTable)).
