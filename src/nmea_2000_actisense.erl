@@ -582,6 +582,9 @@ decode_message(Data) ->
 	    if Check =:= 0 ->
 		    {ok,{Command,Data1}};
 	       true ->
+		    lager:warning("checksum error:~nData ~p~n"
+				  "Command ~p, Len ~p, Data1 ~p, Sum ~p",
+				  [Data, Command, Len, Data1, Sum]),
 		    {error,bad_checksum}
 	    end;
 	<<?DLE,?STX,_Command,Len,Data1/binary>> ->
