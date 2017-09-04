@@ -340,21 +340,15 @@ handle_info({uart,U,Data}, S) when S#s.uart =:= U ->
 handle_info({uart_error,U,Reason},
 	    S=#s{uart = U, name = Name, device = DeviceName}) ->
     if Reason =:= enxio ->
-	    elarm:raise(?ALARM, ?SUBSYS,
-			[{id, Name}, {device, DeviceName}, 
-			 {reason, {enxio, "maybe unplugged?"}}]),
-	    {noreply, reopen(S#s {alarm = true})};
+	    raise_alarm(Name, DeviceName, {enxio, "maybe unplugged?"});
        true ->
-	    elarm:raise(?ALARM, ?SUBSYS,
-			[{id, Name}, {device, DeviceName},
-			 {reason, {uart_error, Reason}}]),
+	    raise_alarm(Name, DeviceName, Reason),
 	    {noreply, S#s {alarm = true}}
     end;
 
 handle_info({uart_closed,U}, 
 	    S=#s{uart = U, name = Name, device = DeviceName}) ->
-    elarm:raise(?ALARM, ?SUBSYS,
-		[{id, Name}, {device, DeviceName}, {reason, uart_closed}]),
+    raise_alarm(Name, DeviceName, uart_closed),
     S1 = reopen(S#s {alarm = true}),
     {noreply, S1};
 
@@ -414,8 +408,10 @@ open(S0=#s {name = Name, device = DeviceName, baud_rate = Baud }) ->
 	{error,E} when E =:= eaccess; E =:= enoent ->
 	    lager:debug("~s@~w  error ~w, will try again in ~p msecs.", 
 			[DeviceName,Baud,E,S0#s.retry_interval]),
-	    elarm:raise(?ALARM, ?SUBSYS,
-			[{id, Name}, {device, DeviceName}, {reason, E}]),
+	    raise_alarm(Name, DeviceName, 
+			if E =:= enoent -> {E, "Maybe unplugged?"};
+			   true -> E
+			end),
 	    Timer = start_timer(S0#s.retry_interval, reopen),
 	    {ok, S0#s { retry_timer = Timer }};
 	{error, E} ->
@@ -611,6 +607,12 @@ sum(Bin) -> sum(Bin,0).
 sum(<<C,Bin/binary>>, Sum) -> sum(Bin, Sum+C);
 sum(<<>>, Sum) -> Sum.
 
+raise_alarm(Name, DeviceName, Reason) ->
+    elarm:raise(?ALARM, ?SUBSYS,
+		[{id, Name}, {device, DeviceName},
+		 {timestamp, timestamp()},
+		 {reason, Reason}]).
+
 call(Pid, Request) when is_pid(Pid) -> 
     gen_server:call(Pid, Request);
 call(Id, Request) when is_integer(Id); is_list(Id) ->
@@ -623,3 +625,12 @@ call(Id, Request) when is_integer(Id); is_list(Id) ->
 	Error -> Error
     end.
 	    
+timestamp() ->
+    TS = 
+	try erlang:system_time(micro_seconds)
+	catch
+	    error:undef ->
+		{MS,S,US} = os:timestamp(),
+		(MS*1000000+S)*1000000+US
+	end,
+    lists:flatten(exo_http:format_timestamp(TS)).
