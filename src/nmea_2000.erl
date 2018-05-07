@@ -77,6 +77,7 @@ input(Frame) when is_record(Frame, can_frame) ->
 %%--------------------------------------------------------------------
 -spec pause(If::integer() | string()) -> ok | {error, Reason::term()}.
 pause(If) when is_integer(If); is_list(If) ->
+    lager:debug("pausing ~p", [If]),
     ?ROUTER:pause(If).
 
 -spec pause() -> {error, Reason::term()}.
@@ -90,6 +91,7 @@ pause() ->
 %%--------------------------------------------------------------------
 -spec resume(If::integer() | string()) -> ok | {error, Reason::term()}.
 resume(If) when is_integer(If); is_list(If) ->
+    lager:debug("resuming ~p", [If]),
     ?ROUTER:resume(If).
     
 -spec resume() -> {error, Reason::term()}.
