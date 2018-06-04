@@ -614,11 +614,9 @@ sum(<<C,Bin/binary>>, Sum) -> sum(Bin, Sum+C);
 sum(<<>>, Sum) -> Sum.
 
 raise_alarm(Alarm, Name, DeviceName, Reason, Extra) ->
-    TS = timestamp_us(),
     elarm:raise(Alarm, ?SUBSYS,
 		[{id, Name}, {device, DeviceName},
-		 {timestamp, TS},
-		 {'timestamp-string', lists:flatten(exo_http:format_timestamp(TS))},
+		 {timestamp, timestamp_us()},
 		 {reason, Reason}] ++ Extra).
 
 call(Pid, Request) when is_pid(Pid) -> 
