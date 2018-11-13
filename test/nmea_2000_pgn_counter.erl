@@ -226,7 +226,7 @@ handle_info({timeout,_TRef,stop},Ctx=#ctx {pgn_table = PgnTable}) ->
     {stop, normal, Ctx};
 
 handle_info(_Info, Ctx) ->
-    ?dbg("unknown info ~p.", [_Info]),
+    io:format("warning: unknown info ~p.", [_Info]),
     {noreply, Ctx}.
 
 %%--------------------------------------------------------------------
