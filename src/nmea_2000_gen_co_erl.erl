@@ -73,7 +73,7 @@ write_functions(Fd, Ps) ->
     io:format(Fd, "\n\n", []),
     io:format(Fd, 
 	      "decode_(Bits, Fields) ->\n"
-	      "  try nmea_2000_codec:decode(Bits, Fields) of\n"
+	      "  try co_codec:decode(Bits, Fields) of\n"
 	      "    Result -> Result\n"
 	      "  catch\n"
 	      "    error:_ -> false\n"
