@@ -70,7 +70,10 @@ decode(Data, [{Type, Size} | TypeSpecList], Pos, Acc)
 	integer ->
 	    <<Value:Size/signed-little>> = extract_lsb_bits(Pos, Size, Data);
 	float ->
-	    <<Value:Size/little-float>> = extract_lsb_bits(Pos, Size, Data)
+	    <<Value:Size/little-float>> = extract_lsb_bits(Pos, Size, Data);
+	domain ->
+	    %%??
+	    <<Value:Size/unsigned-little>> = extract_lsb_bits(Pos, Size, Data)
     end,
     lager:debug("pos ~p, size ~p, value ~p", [Pos, Size,Value]),    
     decode(Data, TypeSpecList, Pos + Size, [Value | Acc]);
