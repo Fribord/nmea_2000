@@ -29,6 +29,8 @@
 
 -export([decode/2]).
 
+-export([test/0]).
+
 -type type_spec()::
 	{Type::atom(),  Size::integer()}.
 
@@ -60,9 +62,16 @@ decode(Data, [{_Type, -1} | _TypeSpecList], Pos, Acc) ->
     <<Value:Size/little>> = extract_lsb_bits(Pos, Size, Data),
     lager:debug("group rest ~p", [Value]),
     {lists:reverse([Value | Acc]), <<>>};
-decode(Data, [{_Type, Size} | TypeSpecList], Pos, Acc) 
+decode(Data, [{Type, Size} | TypeSpecList], Pos, Acc) 
   when Pos + Size =< bit_size(Data) ->
-    <<Value:Size/little>> = extract_lsb_bits(Pos, Size, Data),
+    case Type of 
+	unsigned ->
+	    <<Value:Size/unsigned-little>> = extract_lsb_bits(Pos, Size, Data);
+	integer ->
+	    <<Value:Size/signed-little>> = extract_lsb_bits(Pos, Size, Data);
+	float ->
+	    <<Value:Size/little-float>> = extract_lsb_bits(Pos, Size, Data)
+    end,
     lager:debug("pos ~p, size ~p, value ~p", [Pos, Size,Value]),    
     decode(Data, TypeSpecList, Pos + Size, [Value | Acc]);
 decode(_Data, _TypeSpecList, _Pos, Acc) ->
@@ -267,7 +276,9 @@ test() ->
     test_pgn_129025(),    
     test_10_5(),
     test_random_lsb(),
-    test_random_msb().
+    test_random_msb(),
+    test_overlap_lsb(),
+    test_overlap_msb().
 
 test_pgn_127505() ->
     BitString = <<0,156,49,255,255,255,255,255>>,
