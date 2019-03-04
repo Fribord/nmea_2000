@@ -547,6 +547,9 @@ input_msg(?N2K_MSG_RECEIVED, <<Prio,PGN:24/little,Dst,Src,
     end;
 input_msg(?NGT_MSG_RECEIVED, _Data, S) ->
     %% io:format("ngt-message: ~p\n", [_Data]),
+    S;
+input_msg(_Unknown, _Data, S) ->
+    lager:warning("Got unknowm command ~p", [_Unknown]),
     S.
 
 input(Packet, S=#s {receiver = Receiver, fs = Fs}) ->
